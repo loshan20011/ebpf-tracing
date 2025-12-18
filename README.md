@@ -1,135 +1,119 @@
-Project Title: Kernel-Aware Autoscaling Framework using eBPF
-1. The Core Problem
-Why doesn't Kubernetes work like this out of the box?
+<!--- Rewritten README: formatted, structured, and clarified -->
+# Kernel-Aware Autoscaling Framework using eBPF 🔬🔧
 
-Standard Kubernetes Autoscalers (HPA) act like a simple thermometer. They only check:
+A system that brings kernel-level visibility to Kubernetes autoscaling decisions. Instead of relying solely on CPU or memory, this framework uses eBPF to distinguish between "working hard" (CPU-bound) and "waiting" (I/O or network-bound) behaviours so autoscaling decisions are smarter and avoid thrashing shared resources.
 
-CPU: Is the processor hot?
+---
 
-Memory: Is the RAM full?
+## 1. Problem Statement ❗
 
-The Blind Spot: Imagine a database is writing to a slow hard drive. The application freezes waiting for the disk.
+Standard Kubernetes Horizontal Pod Autoscalers (HPA) look at high-level metrics such as CPU and memory. These metrics cannot distinguish between a process actively using CPU and a process that is blocked waiting on disk or network. The result: HPA may scale incorrectly (or scale down) while users experience high latency.
 
-CPU Usage: Drops to 0% (because the app is waiting, not working).
+This project adds kernel-level observability so the system can tell whether a pod is truly CPU-saturated (scalable) or waiting on shared resources (non-scalable).
 
-Kubernetes HPA says: "CPU is low, everything is fine!" or even "Let's scale down!"
+---
 
-The Reality: Users are facing 10-second latency.
+## 2. High-Level Architecture 🏗️
 
-Your Solution: Your framework acts like an MRI Scanner using eBPF. It looks inside the Operating System Kernel to see why an application is slow. It distinguishes between "Working Hard" (CPU) and "Waiting" (Disk/Network).
+The system is composed of three layers:
 
-2. High-Level Architecture
-Your system consists of three distinct layers.
+- **Layer 1 — Operating System (Truth Source)**
+	- eBPF probes run in the kernel and capture micro-events (function samples, I/O events, schedule switches).
 
-Layer 1: The Operating System (The Truth Source)
-This is where the actual code executes. We use eBPF (Extended Berkeley Packet Filter) to hook into tiny events inside the Linux Kernel.
+- **Layer 2 — eBPF Agent (Translator)**
+	- A privileged Python DaemonSet running on each node. It reads BPF maps, maps cgroups → Pod UIDs, filters noise, and exposes metrics via an HTTP endpoint (default: `http://<node-ip>:5000/`).
 
-Location: Runs safely inside the Linux Kernel.
+- **Layer 3 — Custom Controller (Brain)**
+	- A centralized controller polls Agents, applies decision rules, and calls the Kubernetes API to scale workloads when appropriate.
 
-Role: The "Spy." It watches every function call, disk write, and network packet without slowing down the system.
+---
 
-Layer 2: The eBPF Agent (The Translator)
-This is the Python program running as a DaemonSet (one per node).
+## 3. How It Works — Life of a Metric 🔁
 
-Location: A Privileged Pod on every node.
+1. **Event (Kernel / eBPF)**
+	 - Example: `svc-cpu` runs `main.burnCycles`.
+	 - A sampler (e.g., `profile:hz:99`) records instruction pointer hits and increments counters in a BPF map.
 
-Role: The "Interpreter." It takes raw numbers from the Kernel (e.g., "Cgroup 12345 is waiting") and translates them into Kubernetes concepts (e.g., "Pod svc-io is disk-bound").
+2. **Translation (Agent)**
+	 - The Agent polls BPF maps (e.g., every 2s), sees a cgroup ID with hits, resolves `/sys/fs/cgroup -inum <id>` → Pod UID, filters system pods, and publishes the observation.
 
-Layer 3: The Custom Controller (The Brain)
-This is a centralized Python script.
+3. **Decision (Controller)**
+	 - Controller receives events like `{"type":"CPU","detail":"burnCycles","value":50}` and applies rules (e.g., `if type==CPU and value>10 → scale up`) to adjust replica counts via the Kubernetes API.
 
-Location: A standard Deployment.
+---
 
-Role: The "Decision Maker." It polls the Agent and decides whether to scale up, scale down, or do nothing based on context.
+## 4. The “Big Three” Metrics (Research Focus) 🎯
 
-3. How It Works: The "Life of a Metric"
-Here is the step-by-step flow of how your system detects a bottleneck.
+- **On-CPU (CPU Saturation)** — sampled via instruction-pointer profiling (e.g., `profile:hz:99`).
+	- Meaning: Pod is doing work. **Decision:** ✅ Scale up (add replicas).
 
-Step A: The Event (Inside the Kernel)
-A microservice (e.g., svc-cpu) starts a heavy calculation.
+- **Block (Disk I/O Bottleneck)** — traced via block request tracepoints (e.g., `tracepoint:block:block_rq_issue`).
+	- Meaning: Pod is waiting on disk. **Decision:** ❌ Do not scale (scaling increases contention).
 
-Execution: The CPU executes the function main.burnCycles.
+- **Off-CPU (Network / External Wait)** — measured via schedule switch timings (e.g., `tracepoint:sched:sched_switch`).
+	- Meaning: Pod is waiting on external resources (DB, API, locks). **Decision:** ⚠️ Analyze/scale the dependency instead of the waiting pod.
 
-eBPF Hook: Your BPF script running at profile:hz:99 wakes up 99 times a second.
+---
 
-Capture: It records:
+## 5. Key Concepts (Plain English) 🧠
 
-Who: The Cgroup ID (e.g., 45218).
+- **eBPF:** Safe, in-kernel programs used to observe fine-grained OS events without modifying kernel sources.
+- **Cgroups:** Kernel mechanism that groups processes — used to map kernel observations back to Kubernetes Pods.
+- **Context Switch:** Used to measure time spent waiting (sleep/wakeup latency).
+- **Namespace Filtering:** Agent technique to ignore system namespaces (e.g., `kube-system`) and reduce noise.
 
-What: The function name (main.burnCycles).
+---
 
-Action: Increments a counter in a BPF Map (a super-fast in-memory hash table).
+## 6. Achievements & Milestones ✅
 
-Step B: The Translation (Inside the Agent)
-Every 2 seconds, your Python Agent wakes up and reads the BPF Map.
+- Migrated from a simulated Docker environment to a real K3s cluster on bare metal.
+- Achieved function-level visibility into Go applications (e.g., `main.burnCycles`).
+- Implemented a language-aware Agent that avoids monitoring its own overhead.
+- Built decision logic to distinguish scalable CPU load from non-scalable I/O waits.
 
-Reading: It sees Cgroup 45218 has 50 CPU hits.
+---
 
-Mapping (The "Rosetta Stone"): The Kernel only knows "Cgroups." Kubernetes only knows "Pods."
+## 7. Quick Start & Deployment 🔧
 
-The Agent runs find /sys/fs/cgroup -inum 45218.
+- Agent runs as a privileged **DaemonSet** (`bpf-agent` folder contains `agent.py`, `agent.yaml`, `rbac.yaml`, `Dockerfile`).
+- Controller is a central Python process (see `autoscaler_brain.py` / `autoscaler_brain_v2.py`).
+- Example: Agent exposes metrics on port `5000`; controller polls those endpoints and interacts with the Kubernetes API using Pod UIDs.
 
-It finds the path: .../kubepods-pod<UID>....
+For development, see the repository files and the `deploy.yaml` for cluster resources.
 
-It extracts the Pod UID.
+---
 
-Filtering: It checks ALLOWED_POD_UIDS (from the K8s API) to ensure we ignore system noise (like coredns or the Agent itself).
+## 8. Project Structure 📁
 
-Publishing: It exposes this data at http://<node-ip>:5000/.
+Key files and folders:
 
-Step C: The Decision (Inside the Controller)
-The Controller polls the Agent's API.
+```
+autoscaler_brain.py
+autoscaler_brain_v2.py
+deploy.yaml
+bpf-agent/
+	├─ agent.py
+	├─ agent.yaml
+	├─ rbac.yaml
+	└─ Dockerfile
+svc-*/ (sample services used for experiments)
+```
 
-Input: It receives {"type": "CPU", "detail": "burnCycles", "value": 50} for svc-cpu.
+---
 
-Logic Rule: "If Type is CPU and Value > 10 → SCALE UP."
+## 9. Troubleshooting & Notes ⚠️
 
-Action: It calls the Kubernetes API to change replicas: 1 to replicas: 2.
+- Ensure the Agent has the required privileges and RBAC (`bpf-agent/rbac.yaml`) to read Pod metadata.
+- Verify kernel supports required tracepoints and eBPF features on your distribution.
 
-4. The "Big Three" Metrics (Your Research Novelty)
-This is the technical core of your thesis. You are not just counting usage; you are categorizing behavior.
+> Tip: Run the Agent on a test node first and confirm it serves metrics at `http://<node-ip>:5000/` before deploying the controller.
 
-1. CPU Saturation (The "On-CPU" Metric)
-How we track it: Sampling the instruction pointer 99 times/sec (profile:hz:99).
+---
 
-What it means: The app is processing logic (Math, JSON parsing, Encryption).
+## License
 
-Auto-scaling Decision: ✅ SCALE UP. Adding more replicas splits the workload.
+This repository is available for research and educational use. Include your preferred license here.
 
-2. Disk I/O Bottleneck (The "Block" Metric)
-How we track it: Hooking into the disk request queue (tracepoint:block:block_rq_issue).
+---
 
-What it means: The app is waiting for the hard drive to write data.
-
-Auto-scaling Decision: ❌ DO NOT SCALE.
-
-Why? The hard drive is a shared physical resource. If one pod is clogging the disk, adding more pods will just clog it faster. This prevents "Resource Thrashing."
-
-3. Network/External Wait (The "Off-CPU" Metric)
-How we track it: Measuring the time difference between a process going to sleep and waking up (tracepoint:sched:sched_switch).
-
-What it means: The process is idle, waiting for something else (a database response, an API call, or a mutex lock).
-
-Auto-scaling Decision: ⚠️ Analyze Dependency.
-
-If svc-chain is waiting, scaling svc-chain won't help. We need to scale the downstream service (svc-cpu) that acts as the bottleneck.
-
-5. Key Technical Concepts Simplified
-Use these definitions in your report/viva:
-
-eBPF (Extended Berkeley Packet Filter): A technology that allows us to run sandboxed programs inside the Linux kernel without changing kernel source code or crashing the system. It's like adding a plugin to the OS kernel at runtime.
-
-Cgroups (Control Groups): The Linux feature that isolates processes. Kubernetes uses Cgroups to create the "walls" of a container. We use the Cgroup ID to link kernel events back to specific containers.
-
-Context Switch: The moment the CPU stops working on Task A and starts working on Task B. We measure the time between switches to calculate Latency.
-
-Namespace Filtering: A technique we implemented in the Agent to ignore system noise (kube-system) and focus only on the user's application (default namespace).
-
-6. Summary of Achieved Milestones
-Environment: Successfully moved from a simulated Docker environment to a real K3s Kubernetes cluster on bare-metal Linux.
-
-Visibility: Achieved "X-Ray Vision" into pods. We can see exactly which Go function (main.burnCycles) is causing lag.
-
-Safety: Implemented a "Language-Safe" Agent that monitors Python/Go apps but ignores its own overhead to prevent feedback loops.
-
-Intelligence: The system can now mathematically differentiate between a slow CPU (scalable) and a slow Disk (non-scalable).
+If you'd like, I can also add a short example `kubectl` deployment snippet and a quick diagram showing data flow. 💡
