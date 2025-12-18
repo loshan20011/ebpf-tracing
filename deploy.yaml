@@ -1,0 +1,198 @@
+# --- 1. THE GATEWAY (Entry Point) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+      - name: gateway
+        image: latency-lab:v3
+        command: ["./gateway"]
+        imagePullPolicy: Never  # IMPORTANT: Use the local imported image
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  type: LoadBalancer # K3s will make this available on localhost
+  selector:
+    app: gateway
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+# --- 2. CPU SERVICE ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-cpu
+  template:
+    metadata:
+      labels:
+        app: svc-cpu
+    spec:
+      containers:
+      - name: svc-cpu
+        image: latency-lab:v3
+        command: ["./svc-cpu"]
+        imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-cpu # Gateway can call http://svc-cpu:8081
+spec:
+  selector:
+    app: svc-cpu
+  ports:
+  - port: 8081
+    targetPort: 8081
+
+# --- 3. IO SERVICE ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-io
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-io
+  template:
+    metadata:
+      labels:
+        app: svc-io
+    spec:
+      containers:
+      - name: svc-io
+        image: latency-lab:v3
+        command: ["./svc-io"]
+        imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-io
+spec:
+  selector:
+    app: svc-io
+  ports:
+  - port: 8082
+    targetPort: 8082
+
+# --- 4. CHAIN SERVICE ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-chain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-chain
+  template:
+    metadata:
+      labels:
+        app: svc-chain
+    spec:
+      containers:
+      - name: svc-chain
+        image: latency-lab:v3
+        command: ["./svc-chain"]
+        imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-chain
+spec:
+  selector:
+    app: svc-chain
+  ports:
+  - port: 8086
+    targetPort: 8086
+
+# --- 5. FANOUT SERVICE ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-fanout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-fanout
+  template:
+    metadata:
+      labels:
+        app: svc-fanout
+    spec:
+      containers:
+      - name: svc-fanout
+        image: latency-lab:v3
+        command: ["./svc-fanout"]
+        imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-fanout
+spec:
+  selector:
+    app: svc-fanout
+  ports:
+  - port: 8087
+    targetPort: 8087
+# --- 6. MEM SERVICE ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-mem
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-mem
+  template:
+    metadata:
+      labels:
+        app: svc-mem
+    spec:
+      containers:
+      - name: svc-mem
+        image: latency-lab:v2
+        command: ["./svc-mem"]
+        imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-mem
+spec:
+  selector:
+    app: svc-mem
+  ports:
+  - port: 8083
+    targetPort: 8083

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bpf-agent-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bpf-agent-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bpf-agent-reader-binding
+subjects:
+- kind: ServiceAccount
+  name: bpf-agent-sa
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: bpf-agent-reader
+  apiGroup: rbac.authorization.k8s.io

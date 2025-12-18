@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: bpf-agent
+  labels:
+    app: bpf-agent
+spec:
+  selector:
+    matchLabels:
+      app: bpf-agent
+  template:
+    metadata:
+      labels:
+        app: bpf-agent
+    spec:
+      serviceAccountName: bpf-agent-sa  # <--- ADD THIS LINE
+      hostPID: true
+      containers:
+      - name: agent
+        image: bpf-agent:v17            # <--- UPDATE VERSION
+        imagePullPolicy: Never
+        command: ["python3", "-u", "agent.py"]
+        env:
+        - name: TARGET_NAMESPACE        # <--- OPTIONAL: Define namespace
+          value: "default"
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        securityContext:
+          privileged: true # CRITICAL: Allows BPF syscalls
+          capabilities:
+            add: ["SYS_ADMIN"]
+        volumeMounts:
+        # Mount the Kernel Headers and Debug FS so bpftrace works
+        - name: lib-modules
+          mountPath: /lib/modules
+          readOnly: true
+        - name: usr-src
+          mountPath: /usr/src
+          readOnly: true
+        - name: debug-fs
+          mountPath: /sys/kernel/debug
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+      volumes:
+      - name: lib-modules
+        hostPath:
+          path: /lib/modules
+      - name: usr-src
+        hostPath:
+          path: /usr/src
+      - name: debug-fs
+        hostPath:
+          path: /sys/kernel/debug
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
