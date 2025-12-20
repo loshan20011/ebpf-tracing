@@ -11,108 +11,69 @@ from kubernetes import client, config
 # --- CONFIGURATION ---
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 MY_POD_NAME = os.getenv("MY_POD_NAME", "")
-print(f"[*] Monitoring Namespace: {TARGET_NAMESPACE}", flush=True)
-print(f"[*] Ignoring Self: {MY_POD_NAME}", flush=True)
-
-# --- BPF SCRIPT v17 (Language Safe) ---
-# REMOVED: "python3" from the exclude list so we can monitor Python apps.
-BPF_SCRIPT = """
-// 1. CPU Profiling
-profile:hz:99 { 
-    // We strictly filter Infrastructure & Internal Tools, but allow Application Runtimes (java, python, node, go)
-    if (comm != "bpftrace" && comm != "find" && 
-        comm != "containerd" && comm != "dockerd" && comm != "runc" && 
-        comm != "containerd-shim" && reg("ip") < 0xffffffff00000000) {
-        
-        @cpu_stacks[comm, cgroup, usym(reg("ip"))] = count(); 
-    }
-}
-
-// 2. Disk I/O
-tracepoint:block:block_rq_issue {
-    @disk_io[cgroup] = count();
-}
-
-// 3. Memory Pressure
-tracepoint:exceptions:page_fault_user {
-    if (comm != "bpftrace" && comm != "find" && 
-        comm != "containerd" && comm != "dockerd") {
-        @mem_pressure[comm, cgroup] = count();
-    }
-}
-
-// 4. Off-CPU (Wait Time)
-tracepoint:sched:sched_switch {
-    if (args->prev_state != 0) { 
-        if (args->prev_comm != "bpftrace" && args->prev_comm != "find" && 
-            args->prev_comm != "containerd" && args->prev_comm != "dockerd" && 
-            args->prev_comm != "kworker" && args->prev_comm != "swapper/0" && args->prev_comm != "swapper/1") {
-            
-            @start[args->prev_pid] = nsecs;
-        }
-    }
-    
-    if (@start[args->next_pid]) {
-        if (args->next_comm != "bpftrace" && args->next_comm != "find" && 
-            args->next_comm != "containerd" && args->next_comm != "dockerd") {
-            
-            $delta = (nsecs - @start[args->next_pid]) / 1000;
-            @off_cpu[args->next_comm, cgroup] = sum($delta);
-        }
-        delete(@start[args->next_pid]);
-    }
-}
-
-interval:s:2 { 
-    print(@cpu_stacks); 
-    print(@disk_io); 
-    print(@mem_pressure); 
-    print(@off_cpu);
-    clear(@cpu_stacks); 
-    clear(@disk_io); 
-    clear(@mem_pressure); 
-    clear(@off_cpu);
-}
-"""
+print(f"[*] Agent v28 (Heuristic Fallback) - Namespace: {TARGET_NAMESPACE}", flush=True)
 
 LATEST_METRICS = {}
 ALLOWED_POD_UIDS = set()
+K8S_CONNECTED = False
 
-def watch_kubernetes_pods():
-    try:
-        config.load_incluster_config()
-        v1 = client.CoreV1Api()
-        while True:
-            try:
-                pods = v1.list_namespaced_pod(TARGET_NAMESPACE)
-                new_set = set()
-                for pod in pods.items:
-                    # 1. Ignore Self (The Agent)
-                    if pod.metadata.name == MY_POD_NAME: 
-                        continue 
-                    
-                    # 2. Add everyone else in the namespace
-                    if pod.metadata.uid: 
-                        new_set.add(pod.metadata.uid)
-                
-                global ALLOWED_POD_UIDS
-                ALLOWED_POD_UIDS = new_set
-            except Exception as e:
-                print(f"Error listing pods: {e}", flush=True)
-            time.sleep(5)
-    except Exception as e:
-        print(f"FATAL: Could not connect to K8s API: {e}", flush=True)
+# --- BPF SCRIPT v28 (Standard) ---
+BPF_SCRIPT = """
+profile:hz:99 { 
+    if (comm != "bpftrace" && comm != "find" && reg("ip") < 0xffffffff00000000) {
+        @cpu_stacks[comm, cgroup, usym(reg("ip"))] = count(); 
+    }
+}
+tracepoint:block:block_rq_issue { @disk_io[cgroup] = count(); }
+tracepoint:exceptions:page_fault_user { 
+    if (comm != "bpftrace" && comm != "find") { @mem_pressure[comm, cgroup] = count(); }
+}
+tracepoint:sched:sched_switch {
+    if (args->prev_pid != 0) { @start[args->prev_pid] = nsecs; }
+    if (@start[args->next_pid]) {
+        $delta = (nsecs - @start[args->next_pid]) / 1000;
+        @off_cpu[args->next_comm, cgroup] = sum($delta);
+        delete(@start[args->next_pid]);
+    }
+}
+interval:s:2 { 
+    print(@cpu_stacks); print(@disk_io); print(@mem_pressure); print(@off_cpu);
+    clear(@cpu_stacks); clear(@disk_io); clear(@mem_pressure); clear(@off_cpu);
+}
+"""
+
+def k8s_watcher_loop():
+    global ALLOWED_POD_UIDS, K8S_CONNECTED
+    while True:
+        try:
+            try: config.load_incluster_config()
+            except: config.load_kube_config()
+            v1 = client.CoreV1Api()
+            pods = v1.list_namespaced_pod(TARGET_NAMESPACE, _request_timeout=5)
+            new_set = set()
+            for pod in pods.items:
+                if pod.metadata.name == MY_POD_NAME: continue 
+                if pod.metadata.uid: new_set.add(pod.metadata.uid)
+            ALLOWED_POD_UIDS = new_set
+            
+            if not K8S_CONNECTED: 
+                print(f"[*] K8s Connected! Tracking {len(new_set)} pods.", flush=True)
+            K8S_CONNECTED = True
+        except Exception as e:
+            if K8S_CONNECTED: print(f"[!] Lost K8s Connection: {e}", flush=True)
+            K8S_CONNECTED = False # Mark as disconnected to trigger fallback
+        time.sleep(10)
 
 def get_pod_uid_from_cgroup(cgroupid):
     try:
-        cmd = ["find", "/sys/fs/cgroup", "-maxdepth", "4", "-inum", str(cgroupid)]
+        cmd = ["find", "/sys/fs/cgroup", "-maxdepth", "6", "-inum", str(cgroupid)]
         path = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
         if not path: return None
+        # Strict Regex: Must match Kubernetes Cgroup pattern
         match = re.search(r'pod([a-f0-9-_]+)', path)
         if match: return match.group(1).replace('_', '-')
         return None
-    except:
-        return None
+    except: return None
 
 class MetricsHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -127,82 +88,83 @@ def start_http_server():
     server.serve_forever()
 
 def main():
-    print("[*] eBPF Agent v17 (Language Safe) Started...", flush=True)
-    t_k8s = threading.Thread(target=watch_kubernetes_pods); t_k8s.daemon = True; t_k8s.start()
-    t_http = threading.Thread(target=start_http_server); t_http.daemon = True; t_http.start()
+    print("[*] Starting Agent v28...", flush=True)
+    threading.Thread(target=k8s_watcher_loop, daemon=True).start()
+    threading.Thread(target=start_http_server, daemon=True).start()
 
     with open("sensor.bt", "w") as f: f.write(BPF_SCRIPT)
-    
     process = subprocess.Popen(["bpftrace", "sensor.bt"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-    print("[*] Sensor Running...", flush=True)
     
-    def print_stderr():
-        for line in process.stderr: print(f"BPF ERROR: {line.strip()}", flush=True)
-    threading.Thread(target=print_stderr, daemon=True).start()
+    # Debug: Print BPF errors
+    threading.Thread(target=lambda: process.stderr.read(), daemon=True).start()
 
+    print("[*] Sensor Running...", flush=True)
     id_cache = {}
 
-    def resolve_valid_uid(cgroup):
+    def is_valid_workload(cgroup):
+        # 1. Resolve UID
         uid = id_cache.get(cgroup)
         if not uid:
             uid = get_pod_uid_from_cgroup(cgroup)
-            id_cache[cgroup] = uid if uid else "UNKNOWN"
+            if uid: id_cache[cgroup] = uid
+            else: 
+                id_cache[cgroup] = "NO_MATCH"
+                return None
+
+        if uid == "NO_MATCH": return None
         
-        # KEY LOGIC: Even if BPF captured 'python3' (us), 
-        # this check will fail because our UID is not in ALLOWED_POD_UIDS.
-        # So we effectively drop our own traffic here.
-        if uid in ALLOWED_POD_UIDS: return uid
+        # 2. Logic Gate
+        if K8S_CONNECTED:
+            # Gold Standard: Check against API list
+            if uid in ALLOWED_POD_UIDS: return uid
+        else:
+            # Fallback: If we extracted a valid UID, trust it.
+            # This filters out Chrome/Host apps because they don't have 'pod<UID>' cgroups.
+            return uid
+            
         return None
 
     while True:
         line = process.stdout.readline()
-        if not line:
-            if process.poll() is not None:
-                print(f"CRITICAL: bpftrace died code {process.returncode}", flush=True)
-                break
-            continue
+        if not line: break
         
         # 1. CPU
-        cpu_match = re.search(r'@cpu_stacks\[(.*?), (\d+), (.*?)\]: (\d+)', line)
-        if cpu_match:
-            comm, cgroup, func, count = cpu_match.groups()
-            if int(count) > 5:
-                uid = resolve_valid_uid(cgroup)
-                if uid:
-                    func = func.split("+")[0].strip()
-                    print(f"🔥 [CPU] Pod: {uid} | App: {comm} | Func: {func}", flush=True)
-                    LATEST_METRICS[uid] = {"type": "CPU", "detail": func, "value": count}
+        cpu = re.search(r'@cpu_stacks\[(.*?), (\d+), (.*?)\]: (\d+)', line)
+        if cpu:
+            comm, cgroup, func, count = cpu.groups()
+            uid = is_valid_workload(cgroup)
+            if uid and int(count) > 5:
+                func = func.split("+")[0].strip()
+                print(f"🔥 [CPU] Pod: {uid} | App: {comm} | Func: {func}", flush=True)
+                LATEST_METRICS[uid] = {"type": "CPU", "value": count}
 
-        # 2. DISK
-        disk_match = re.search(r'@disk_io\[(\d+)\]: (\d+)', line)
-        if disk_match:
-            cgroup, count = disk_match.groups()
-            if int(count) > 10:
-                uid = resolve_valid_uid(cgroup)
-                if uid:
-                    print(f"🚨 [DISK] Pod: {uid} | IOPS: {count}", flush=True)
-                    LATEST_METRICS[uid] = {"type": "DISK", "detail": "High IOPS", "value": count}
+        # 2. DISK IO
+        disk = re.search(r'@disk_io\[(\d+)\]: (\d+)', line)
+        if disk:
+            cgroup, count = disk.groups()
+            uid = is_valid_workload(cgroup)
+            if uid and int(count) > 10:
+                print(f"🚨 [DISK] Pod: {uid} | IOPS: {count}", flush=True)
+                LATEST_METRICS[uid] = {"type": "DISK", "value": count}
 
         # 3. MEMORY
-        mem_match = re.search(r'@mem_pressure\[(.*?), (\d+)\]: (\d+)', line)
-        if mem_match:
-            comm, cgroup, count = mem_match.groups()
-            if int(count) > 100:
-                uid = resolve_valid_uid(cgroup)
-                if uid:
-                    print(f"⚠️ [MEM] Pod: {uid} | App: {comm} | Faults: {count}", flush=True)
-                    LATEST_METRICS[uid] = {"type": "MEMORY", "detail": "Page Faults", "value": count}
+        mem = re.search(r'@mem_pressure\[(.*?), (\d+)\]: (\d+)', line)
+        if mem:
+            comm, cgroup, count = mem.groups()
+            uid = is_valid_workload(cgroup)
+            if uid and int(count) > 100:
+                print(f"⚠️ [MEM] Pod: {uid} | App: {comm} | Faults: {count}", flush=True)
+                LATEST_METRICS[uid] = {"type": "MEMORY", "value": count}
 
-        # 4. OFF-CPU
-        off_match = re.search(r'@off_cpu\[(.*?), (\d+)\]: (\d+)', line)
-        if off_match:
-            comm, cgroup, usecs = off_match.groups()
-            wait_time = int(usecs)
-            if wait_time > 200000 and wait_time < 2000000:
-                uid = resolve_valid_uid(cgroup)
-                if uid:
-                    print(f"☁️ [WAIT] Pod: {uid} | App: {comm} | Latency: {wait_time/1000}ms", flush=True)
-                    LATEST_METRICS[uid] = {"type": "NETWORK", "detail": "Latency", "value": wait_time}
+        # 4. NETWORK WAIT
+        off = re.search(r'@off_cpu\[(.*?), (\d+)\]: (\d+)', line)
+        if off:
+            comm, cgroup, usecs = off.groups()
+            uid = is_valid_workload(cgroup)
+            wait = int(usecs)
+            if uid and wait > 200000 and wait < 2000000:
+                print(f"☁️ [WAIT] Pod: {uid} | App: {comm} | Latency: {wait/1000}ms", flush=True)
+                LATEST_METRICS[uid] = {"type": "NETWORK", "value": wait}
 
 if __name__ == "__main__":
     main()

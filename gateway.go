@@ -19,7 +19,6 @@ func callService(url string) (string, time.Duration) {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request, serviceName string, port string) {
-	// KUBERNETES FIX: Use service name instead of localhost
 	url := fmt.Sprintf("http://%s:%s", serviceName, port)
 	
 	resp, duration := callService(url)
