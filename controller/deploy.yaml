@@ -45,8 +45,10 @@ spec:
         app: autoscaler
     spec:
       serviceAccountName: autoscaler-sa
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
       - name: autoscaler
         # Make sure this matches your latest build (v5)
-        image: autoscaler:v5
+        image: autoscaler:v8
         imagePullPolicy: Never
