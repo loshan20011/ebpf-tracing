@@ -17,7 +17,7 @@ spec:
       hostPID: true
       containers:
       - name: agent
-        image: bpf-agent:v28            # <--- UPDATE VERSION
+        image: bpf-agent:v30           # <--- UPDATE VERSION
         imagePullPolicy: Never
         command: ["python3", "-u", "agent.py"]
         env:

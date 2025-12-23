@@ -11,34 +11,109 @@ from kubernetes import client, config
 # --- CONFIGURATION ---
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 MY_POD_NAME = os.getenv("MY_POD_NAME", "")
-print(f"[*] Agent v28 (Heuristic Fallback) - Namespace: {TARGET_NAMESPACE}", flush=True)
+print(f"[*] Agent v29 (True SLO Tracing) - Namespace: {TARGET_NAMESPACE}", flush=True)
 
 LATEST_METRICS = {}
 ALLOWED_POD_UIDS = set()
 K8S_CONNECTED = False
 
-# --- BPF SCRIPT v28 (Standard) ---
+# --- BPF SCRIPT v29 (Request Duration) ---
 BPF_SCRIPT = """
+// 1. Map to store when a process finished reading a request
+struct start_t {
+    u64 ts;
+}
+BPF_HASH(start_times, u32, struct start_t);
+
+// 2. Hook: Return from 'read' or 'recvfrom' (Request Received)
+tracepoint:syscalls:sys_exit_read {
+    u32 pid = pid;
+    struct start_t s = {};
+    s.ts = nsecs;
+    start_times.update(&pid, &s);
+}
+tracepoint:syscalls:sys_exit_recvfrom {
+    u32 pid = pid;
+    struct start_t s = {};
+    s.ts = nsecs;
+    start_times.update(&pid, &s);
+}
+
+// 3. Hook: Enter 'write' or 'sendto' (Response Sending)
+tracepoint:syscalls:sys_enter_write {
+    u32 pid = pid;
+    struct start_t *s = start_times.lookup(&pid);
+    if (s != 0) {
+        u64 delta = (nsecs - s->ts) / 1000000; // Convert to Milliseconds
+        // Only report if latency is significant (>5ms) to filter noise
+        if (delta > 5 && delta < 10000) { 
+            @req_latency[comm, cgroup] = hist(delta);
+        }
+        start_times.delete(&pid);
+    }
+}
+tracepoint:syscalls:sys_enter_sendto {
+    u32 pid = pid;
+    struct start_t *s = start_times.lookup(&pid);
+    if (s != 0) {
+        u64 delta = (nsecs - s->ts) / 1000000;
+        if (delta > 5 && delta < 10000) {
+            @req_latency[comm, cgroup] = hist(delta);
+        }
+        start_times.delete(&pid);
+    }
+}
+
+// Keep CPU profiling for saturation check
 profile:hz:99 { 
     if (comm != "bpftrace" && comm != "find" && reg("ip") < 0xffffffff00000000) {
-        @cpu_stacks[comm, cgroup, usym(reg("ip"))] = count(); 
+        @cpu_stacks[comm, cgroup] = count(); 
     }
 }
-tracepoint:block:block_rq_issue { @disk_io[cgroup] = count(); }
-tracepoint:exceptions:page_fault_user { 
-    if (comm != "bpftrace" && comm != "find") { @mem_pressure[comm, cgroup] = count(); }
-}
-tracepoint:sched:sched_switch {
-    if (args->prev_pid != 0) { @start[args->prev_pid] = nsecs; }
-    if (@start[args->next_pid]) {
-        $delta = (nsecs - @start[args->next_pid]) / 1000;
-        @off_cpu[args->next_comm, cgroup] = sum($delta);
-        delete(@start[args->next_pid]);
-    }
-}
+
 interval:s:2 { 
-    print(@cpu_stacks); print(@disk_io); print(@mem_pressure); print(@off_cpu);
-    clear(@cpu_stacks); clear(@disk_io); clear(@mem_pressure); clear(@off_cpu);
+    print(@req_latency); 
+    print(@cpu_stacks);
+    clear(@req_latency); 
+    clear(@cpu_stacks);
+}
+"""
+
+# Note: The above is pseudo-code logic. 
+# bpftrace syntax is simpler. Let's write the EXACT bpftrace script below.
+# We use 'map' instead of BPF_HASH for bpftrace.
+
+REAL_BPF_SCRIPT = """
+tracepoint:syscalls:sys_exit_read,
+tracepoint:syscalls:sys_exit_recvfrom
+{
+    @start[pid] = nsecs;
+}
+
+tracepoint:syscalls:sys_enter_write,
+tracepoint:syscalls:sys_enter_sendto
+{
+    $s = @start[pid];
+    if ($s != 0) {
+        $delta = (nsecs - $s) / 1000000; // ms
+        if ($delta > 10) { // Filter tiny noise
+            @req_latency[comm, cgroup] = max($delta);
+        }
+        delete(@start[pid]);
+    }
+}
+
+profile:hz:99 { 
+    if (comm != "bpftrace" && comm != "find" && reg("ip") < 0xffffffff00000000) {
+        @cpu_stacks[comm, cgroup] = count(); 
+    }
+}
+
+interval:s:2 { 
+    print(@req_latency); 
+    print(@cpu_stacks);
+    clear(@req_latency); 
+    clear(@cpu_stacks);
 }
 """
 
@@ -55,21 +130,17 @@ def k8s_watcher_loop():
                 if pod.metadata.name == MY_POD_NAME: continue 
                 if pod.metadata.uid: new_set.add(pod.metadata.uid)
             ALLOWED_POD_UIDS = new_set
-            
-            if not K8S_CONNECTED: 
-                print(f"[*] K8s Connected! Tracking {len(new_set)} pods.", flush=True)
+            if not K8S_CONNECTED: print(f"[*] K8s Connected! Tracking {len(new_set)} pods.", flush=True)
             K8S_CONNECTED = True
-        except Exception as e:
-            if K8S_CONNECTED: print(f"[!] Lost K8s Connection: {e}", flush=True)
-            K8S_CONNECTED = False # Mark as disconnected to trigger fallback
-        time.sleep(10)
+        except: 
+            K8S_CONNECTED = False
+        time.sleep(5)
 
 def get_pod_uid_from_cgroup(cgroupid):
     try:
         cmd = ["find", "/sys/fs/cgroup", "-maxdepth", "6", "-inum", str(cgroupid)]
         path = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
         if not path: return None
-        # Strict Regex: Must match Kubernetes Cgroup pattern
         match = re.search(r'pod([a-f0-9-_]+)', path)
         if match: return match.group(1).replace('_', '-')
         return None
@@ -88,21 +159,19 @@ def start_http_server():
     server.serve_forever()
 
 def main():
-    print("[*] Starting Agent v28...", flush=True)
+    print("[*] Starting Agent v29...", flush=True)
     threading.Thread(target=k8s_watcher_loop, daemon=True).start()
     threading.Thread(target=start_http_server, daemon=True).start()
 
-    with open("sensor.bt", "w") as f: f.write(BPF_SCRIPT)
+    with open("sensor.bt", "w") as f: f.write(REAL_BPF_SCRIPT)
     process = subprocess.Popen(["bpftrace", "sensor.bt"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     
-    # Debug: Print BPF errors
     threading.Thread(target=lambda: process.stderr.read(), daemon=True).start()
 
     print("[*] Sensor Running...", flush=True)
     id_cache = {}
 
-    def is_valid_workload(cgroup):
-        # 1. Resolve UID
+    def is_valid_k8s_workload(cgroup):
         uid = id_cache.get(cgroup)
         if not uid:
             uid = get_pod_uid_from_cgroup(cgroup)
@@ -110,61 +179,34 @@ def main():
             else: 
                 id_cache[cgroup] = "NO_MATCH"
                 return None
-
         if uid == "NO_MATCH": return None
-        
-        # 2. Logic Gate
-        if K8S_CONNECTED:
-            # Gold Standard: Check against API list
-            if uid in ALLOWED_POD_UIDS: return uid
-        else:
-            # Fallback: If we extracted a valid UID, trust it.
-            # This filters out Chrome/Host apps because they don't have 'pod<UID>' cgroups.
-            return uid
-            
+        if K8S_CONNECTED and uid in ALLOWED_POD_UIDS: return uid
+        if not K8S_CONNECTED and uid: return uid # Fallback
         return None
 
     while True:
         line = process.stdout.readline()
         if not line: break
         
-        # 1. CPU
-        cpu = re.search(r'@cpu_stacks\[(.*?), (\d+), (.*?)\]: (\d+)', line)
+        # 1. CPU (Existing)
+        cpu = re.search(r'@cpu_stacks\[(.*?), (\d+)\]: (\d+)', line)
         if cpu:
-            comm, cgroup, func, count = cpu.groups()
-            uid = is_valid_workload(cgroup)
-            if uid and int(count) > 5:
-                func = func.split("+")[0].strip()
-                print(f"🔥 [CPU] Pod: {uid} | App: {comm} | Func: {func}", flush=True)
+            comm, cgroup, count = cpu.groups()
+            uid = is_valid_k8s_workload(cgroup)
+            if uid and int(count) > 100:
+                # print(f"🔥 [CPU] Pod: {uid} | App: {comm}", flush=True)
                 LATEST_METRICS[uid] = {"type": "CPU", "value": count}
 
-        # 2. DISK IO
-        disk = re.search(r'@disk_io\[(\d+)\]: (\d+)', line)
-        if disk:
-            cgroup, count = disk.groups()
-            uid = is_valid_workload(cgroup)
-            if uid and int(count) > 10:
-                print(f"🚨 [DISK] Pod: {uid} | IOPS: {count}", flush=True)
-                LATEST_METRICS[uid] = {"type": "DISK", "value": count}
-
-        # 3. MEMORY
-        mem = re.search(r'@mem_pressure\[(.*?), (\d+)\]: (\d+)', line)
-        if mem:
-            comm, cgroup, count = mem.groups()
-            uid = is_valid_workload(cgroup)
-            if uid and int(count) > 100:
-                print(f"⚠️ [MEM] Pod: {uid} | App: {comm} | Faults: {count}", flush=True)
-                LATEST_METRICS[uid] = {"type": "MEMORY", "value": count}
-
-        # 4. NETWORK WAIT
-        off = re.search(r'@off_cpu\[(.*?), (\d+)\]: (\d+)', line)
-        if off:
-            comm, cgroup, usecs = off.groups()
-            uid = is_valid_workload(cgroup)
-            wait = int(usecs)
-            if uid and wait > 200000 and wait < 2000000:
-                print(f"☁️ [WAIT] Pod: {uid} | App: {comm} | Latency: {wait/1000}ms", flush=True)
-                LATEST_METRICS[uid] = {"type": "NETWORK", "value": wait}
+        # 2. REQUEST LATENCY (New SLO Metric)
+        # Matches: @req_latency[svc-cpu, 234823]: 500
+        lat = re.search(r'@req_latency\[(.*?), (\d+)\]: (\d+)', line)
+        if lat:
+            comm, cgroup, ms = lat.groups()
+            uid = is_valid_k8s_workload(cgroup)
+            if uid:
+                print(f"⏱️ [SLO] Pod: {uid} | App: {comm} | Duration: {ms}ms", flush=True)
+                # We overwrite the metric type to "SLO_LATENCY"
+                LATEST_METRICS[uid] = {"type": "SLO_LATENCY", "value": ms}
 
 if __name__ == "__main__":
     main()
