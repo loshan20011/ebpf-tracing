@@ -50,5 +50,5 @@ spec:
       containers:
       - name: autoscaler
         # Make sure this matches your latest build (v5)
-        image: autoscaler:v9 
+        image: autoscaler:v11
         imagePullPolicy: Never
