@@ -1,107 +1,83 @@
 import time
 import requests
-import math
 import logging
 from kubernetes import client, config
 
-# --- CONFIGURATION ---
 AGENT_URL = "http://bpf-agent:5000"
 SLO_LATENCY_MS = 20
-SLO_CPU_THRESHOLD = 50
-MIN_REPLICAS = 1
 MAX_REPLICAS = 10
-COOLDOWN_SECONDS = 30
+COOLDOWN = 30
+# IGNORE LIST: Don't try to scale these
+IGNORE_SVC = ["bpf-agent", "kubernetes", "coredns"]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("Brain")
 
-def get_k8s_client():
-    try:
-        config.load_incluster_config()
-    except:
-        config.load_kube_config()
-    return client.AppsV1Api(), client.CoreV1Api()
+def get_k8s_apps():
+    try: config.load_incluster_config()
+    except: config.load_kube_config()
+    return client.AppsV1Api()
 
-def get_deployment_name(pod_uid, core_v1, apps_v1):
-    try:
-        # 1. Find Pod
-        all_pods = core_v1.list_namespaced_pod("default")
-        target_pod = None
-        for pod in all_pods.items:
-            if pod.metadata.uid == pod_uid:
-                target_pod = pod
-                break
-        
-        if not target_pod or not target_pod.metadata.owner_references: 
-            return None
-
-        # 2. Check Owner Type (CRITICAL FIX)
-        owner = target_pod.metadata.owner_references[0]
-        
-        # IGNORE DaemonSets (like bpf-agent) and StatefulSets
-        if owner.kind != "ReplicaSet":
-            return None 
-            
-        # 3. Get ReplicaSet
-        rs_name = owner.name
-        rs = apps_v1.read_namespaced_replica_set(rs_name, "default")
-        
-        # 4. Get Deployment
-        if rs.metadata.owner_references:
-            return rs.metadata.owner_references[0].name
-            
-    except Exception as e:
-        # logger.error(f"Mapping Error: {e}")
-        return None
-    return None
-
-def calculate_replicas_queueing_theory(current_replicas, measured_value, target_value):
-    if measured_value <= target_value: return current_replicas
-    ratio = measured_value / target_value
-    needed = math.ceil(current_replicas * ratio)
-    return min(MAX_REPLICAS, int(needed))
+def scale_deployment(api, deploy_name, current_replicas, reason):
+    new_replicas = min(MAX_REPLICAS, current_replicas + 1)
+    if new_replicas > current_replicas:
+        logger.info(f"⚡ SCALING {deploy_name}: {current_replicas} -> {new_replicas} ({reason})")
+        api.patch_namespaced_deployment_scale(
+            deploy_name, "default", {"spec": {"replicas": new_replicas}}
+        )
+        return True
+    return False
 
 def main():
-    logger.info(f"🤖 Controller v7 Started (Fix: Ignoring DaemonSets)")
-    apps_v1, core_v1 = get_k8s_client()
-    last_scale_time = {}
+    logger.info("🤖 Graph-Aware Controller Started")
+    api = get_k8s_apps()
+    last_scale = {}
 
     while True:
         try:
             try:
-                response = requests.get(AGENT_URL, timeout=2)
-                metrics = response.json()
+                data = requests.get(AGENT_URL, timeout=2).json()
             except:
-                logger.error(f"❌ Cannot connect to Agent at {AGENT_URL}")
+                logger.error("Waiting for Agent connection...")
                 time.sleep(5)
                 continue
 
-            for uid, data in metrics.items():
-                m_type = data.get("type")
-                val = float(data.get("value", 0))
+            metrics = data.get("metrics", {})
+            topology = data.get("topology", {})
 
-                deploy_name = get_deployment_name(uid, core_v1, apps_v1)
+            for svc_name, latency in metrics.items():
+                # 1. FILTER: Skip system components
+                if svc_name in IGNORE_SVC: continue
                 
-                # If it returns None (e.g. it's the Agent itself), SKIP IT
-                if not deploy_name: 
-                    continue
+                if latency <= SLO_LATENCY_MS: continue
 
-                if time.time() - last_scale_time.get(deploy_name, 0) < COOLDOWN_SECONDS:
-                    continue
+                # 2. ROOT CAUSE ANALYSIS
+                dependencies = topology.get(svc_name, [])
+                blame_downstream = None
 
-                # --- CHECK SLO ---
-                if m_type == "SLO_LATENCY":
-                    if val > SLO_LATENCY_MS:
-                        logger.warning(f"🚨 SLO VIOLATION: {deploy_name} Latency {int(val)}ms > {SLO_LATENCY_MS}ms")
-                        scale = apps_v1.read_namespaced_deployment_scale(deploy_name, "default")
-                        curr = scale.spec.replicas
-                        target = calculate_replicas_queueing_theory(curr, val, SLO_LATENCY_MS)
-                        
-                        if target > curr:
-                            logger.info(f"⚡ SCALING: {deploy_name} {curr} -> {target} Replicas")
-                            patch = {"spec": {"replicas": target}}
-                            apps_v1.patch_namespaced_deployment_scale(deploy_name, "default", patch)
-                            last_scale_time[deploy_name] = time.time()
+                for child_svc in dependencies:
+                    child_latency = metrics.get(child_svc, 0)
+                    if child_latency > SLO_LATENCY_MS and child_svc not in IGNORE_SVC:
+                        blame_downstream = child_svc
+                        break
+                
+                # 3. DECISION
+                target_svc = blame_downstream if blame_downstream else svc_name
+                reason = f"{svc_name} Latency {latency}ms > SLO"
+                if blame_downstream:
+                    reason = f"Bottleneck in {target_svc} (blocking {svc_name})"
+
+                if time.time() - last_scale.get(target_svc, 0) > COOLDOWN:
+                    try:
+                        scale_obj = api.read_namespaced_deployment_scale(target_svc, "default")
+                        if scale_deployment(api, target_svc, scale_obj.spec.replicas, reason):
+                            last_scale[target_svc] = time.time()
+                    except client.exceptions.ApiException as e:
+                        if e.status == 404:
+                            # Silently ignore if deployment doesn't exist (e.g. it's a DaemonSet or StatefulSet)
+                            pass
+                        else:
+                            logger.warning(f"K8s API Error for {target_svc}: {e}")
 
         except Exception as e:
             logger.error(f"Loop Error: {e}")

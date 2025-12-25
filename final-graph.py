@@ -1,82 +1,69 @@
-import subprocess
-import re
-import threading
-import sys
+import requests
 import time
 import os
-from kubernetes import client, config
+import sys
 
-print("[*] Initializing Full Chain Visualizer...", flush=True)
+AGENT_URL = "http://localhost:5000"
 
-try:
-    config.load_kube_config()
-    v1 = client.CoreV1Api()
-except:
-    sys.exit(1)
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
-IP_MAP = {}
-GRAPH_EDGES = set()
+def get_status_symbol(latency):
+    if latency < 20: return "🟢"
+    if latency < 50: return "🟡"
+    return "🔴"
 
-def update_map():
-    global IP_MAP
+def draw_dashboard():
+    print("Waiting for Agent data...", flush=True)
     while True:
         try:
-            new_map = {}
-            for svc in v1.list_service_for_all_namespaces().items:
-                if svc.spec.cluster_ip: new_map[svc.spec.cluster_ip] = svc.metadata.name
-            for pod in v1.list_pod_for_all_namespaces().items:
-                if pod.status.pod_ip: new_map[pod.status.pod_ip] = pod.metadata.name
-            IP_MAP = new_map
-        except: pass
-        time.sleep(5)
-
-def clean_name(name):
-    # Simplify names for the diagram
-    if "svc-cpu" in name: return "CPU"
-    if "svc-mem" in name: return "Memory"
-    if "svc-io" in name: return "IO"
-    if "svc-chain" in name: return "Chain"
-    if "gateway" in name: return "Gateway"
-    return name
-
-def draw_graph():
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print("\n╔══════════════════════════════════════════╗")
-    print("║   ⛓️  FULL MICROSERVICE DEPENDENCY MAP    ║")
-    print("╚══════════════════════════════════════════╝")
-    print("graph LR")
-    
-    for edge in sorted(list(GRAPH_EDGES)):
-        print(f"    {edge}")
-
-def main():
-    threading.Thread(target=update_map, daemon=True).start()
-    
-    cmd = ["kubectl", "exec", "ds/bpf-agent", "--", "python3", "-u", "topology-agent.py"]
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-
-    while True:
-        line = process.stdout.readline()
-        if not line: break
-        
-        # New Format: [GRAPH] SourceName --> DestIP
-        match = re.search(r'\[GRAPH\] (.*?) --> ([0-9\.]+)', line)
-        if match:
-            source_raw = match.group(1)
-            dest_ip = match.group(2)
+            response = requests.get(AGENT_URL, timeout=1)
+            data = response.json()
+            metrics = data.get("metrics", {})
+            topology = data.get("topology", {})
             
-            dest_raw = IP_MAP.get(dest_ip)
+            clear_screen()
+            print("\n╔══════════════════════════════════════════════════╗")
+            print("║   🔌  MICROSERVICE TOPOLOGY & LATENCY MAP        ║")
+            print("╚══════════════════════════════════════════════════╝")
             
-            if dest_raw:
-                src = clean_name(source_raw)
-                dst = clean_name(dest_raw)
-                
-                # Prevent self-loops or boring traffic
-                if src != dst and "kube" not in dst:
-                    edge = f"{src} --> {dst}"
-                    if edge not in GRAPH_EDGES:
-                        GRAPH_EDGES.add(edge)
-                        draw_graph()
+            print("\n [ SERVICE HEALTH ]")
+            all_services = set(metrics.keys()) | set(topology.keys())
+            for deps in topology.values(): all_services.update(deps)
+            
+            if not all_services: print("  (No traffic detected yet...)")
+            
+            for svc in sorted(list(all_services)):
+                if svc == "bpf-agent": continue # Hide agent from UI
+                lat = metrics.get(svc, 0) 
+                symbol = get_status_symbol(lat)
+                print(f"  {symbol} {svc:<15} : {lat} ms")
+
+            print("\n [ DEPENDENCY GRAPH ]")
+            print("graph LR")
+            for source, targets in topology.items():
+                if source == "autoscaler": continue # Hide autoscaler noise
+                for target in targets:
+                    if "10." in target: continue # Hide IPs
+                    print(f"    {source} --> {target}")
+
+            print("\n" + "="*50)
+            print(" Press Ctrl+C to exit")
+            time.sleep(1)
+
+        except requests.exceptions.ConnectionError:
+            print("❌ Cannot connect to Agent. Is port-forwarding active?")
+            print("   Run: kubectl port-forward ds/bpf-agent 5000:5000")
+            time.sleep(2)
+        except KeyboardInterrupt:
+            print("\n👋 Exiting Dashboard.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        draw_dashboard()
+    except KeyboardInterrupt:
+        print("\n👋 Exiting.")

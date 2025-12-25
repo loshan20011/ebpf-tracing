@@ -17,7 +17,7 @@ spec:
       - name: gateway
         image: latency-lab:v3
         command: ["./gateway"]
-        imagePullPolicy: Never  # IMPORTANT: Use the local imported image
+        imagePullPolicy: Never
         ports:
         - containerPort: 8080
 ---
@@ -25,8 +25,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: gateway
+  labels:           # <--- ADDED
+    app: gateway    # <--- ADDED
 spec:
-  type: LoadBalancer # K3s will make this available on localhost
+  type: LoadBalancer
   selector:
     app: gateway
   ports:
@@ -58,7 +60,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: svc-cpu # Gateway can call http://svc-cpu:8081
+  name: svc-cpu
+  labels:           # <--- ADDED
+    app: svc-cpu    # <--- ADDED
 spec:
   selector:
     app: svc-cpu
@@ -92,6 +96,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: svc-io
+  labels:          # <--- ADDED
+    app: svc-io    # <--- ADDED
 spec:
   selector:
     app: svc-io
@@ -125,6 +131,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: svc-chain
+  labels:             # <--- ADDED
+    app: svc-chain    # <--- ADDED
 spec:
   selector:
     app: svc-chain
@@ -158,12 +166,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: svc-fanout
+  labels:              # <--- ADDED
+    app: svc-fanout    # <--- ADDED
 spec:
   selector:
     app: svc-fanout
   ports:
   - port: 8087
     targetPort: 8087
+
 # --- 6. MEM SERVICE ---
 ---
 apiVersion: apps/v1
@@ -190,6 +201,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: svc-mem
+  labels:           # <--- ADDED
+    app: svc-mem    # <--- ADDED
 spec:
   selector:
     app: svc-mem

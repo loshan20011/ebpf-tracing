@@ -10,7 +10,7 @@ metadata:
   name: bpf-agent-reader
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
+  resources: ["pods", "services"]  # <--- ADDED "services" HERE
   verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
