@@ -12,11 +12,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install python libs (Added 'kubernetes')
+# Install python libs
 RUN pip3 install requests numpy kubernetes
 
-# Copy the agent script
+# Copy the main autoscaling agent
 COPY agent.py .
 
-# Run the Python agent immediately
+# --- NEW: Copy the Topology Mapper script ---
+COPY topology-agent.py .
+
+# Run the Main Agent by default (Autoscaling)
 CMD ["python3", "-u", "agent.py"]

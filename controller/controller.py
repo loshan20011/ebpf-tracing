@@ -6,7 +6,7 @@ from kubernetes import client, config
 
 # --- CONFIGURATION ---
 AGENT_URL = "http://bpf-agent:5000"
-SLO_LATENCY_MS = 20
+SLO_LATENCY_MS = 500
 SLO_CPU_THRESHOLD = 50
 MIN_REPLICAS = 1
 MAX_REPLICAS = 10

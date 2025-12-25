@@ -1,0 +1,23 @@
+// 1. Capture START (Listen to both Read and Recvfrom)
+tracepoint:syscalls:sys_exit_read,
+tracepoint:syscalls:sys_exit_recvfrom 
+/comm == "svc-cpu" || comm == "svc-chain" || comm == "gateway"/ { 
+    @start[pid] = nsecs; 
+}
+
+// 2. Capture END (Listen to both Write and Sendto)
+tracepoint:syscalls:sys_enter_write,
+tracepoint:syscalls:sys_enter_sendto
+/comm == "svc-cpu" || comm == "svc-chain" || comm == "gateway"/ {
+    $s = @start[pid];
+    if ($s != 0) {
+        $dur = (nsecs - $s) / 1000000;
+        // Format: DATA:ServiceName:Latency
+        if ($dur > -1) {
+             printf("DATA:%s:%d\n", comm, $dur);
+        }
+    }
+}
+
+// 3. Clear memory every 1s (Prevents warnings)
+interval:s:1 { clear(@start); }
