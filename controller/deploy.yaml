@@ -9,6 +9,14 @@ kind: ClusterRole
 metadata:
   name: autoscaler-role
 rules:
+# 1. Access to Standard Deployments
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "update", "patch"]
+# 2. Access to Our New Custom Resource
+- apiGroups: ["autoscaling.fyp.io"]
+  resources: ["serviceslos"]
+  verbs: ["get", "list", "watch"]
 # --- CORRECTION IS HERE ---
 - apiGroups: ["apps"]
   resources: ["deployments", "deployments/scale", "replicasets"] # <--- Moved 'replicasets' here
@@ -48,7 +56,10 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:
-      - name: autoscaler
+      - name: controller
         # Make sure this matches your latest build (v5)
-        image: autoscaler:v13
+        image: local/controller:v4
         imagePullPolicy: Never
+        env:
+          - name: AGGREGATOR_URL
+            value: "http://aggregator:8000"

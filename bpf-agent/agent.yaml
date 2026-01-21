@@ -16,8 +16,8 @@ spec:
       serviceAccountName: bpf-agent-sa  # <--- ADD THIS LINE
       hostPID: true
       containers:
-      - name: agent
-        image: bpf-agent:v40
+      - name: bpf-agent
+        image: local/bpf-agent:v9
         imagePullPolicy: Never
         command: ["python3", "-u", "agent.py"]
         env:

@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from kubernetes import client, config
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
-print(f"[*] Unified Agent V5.3 (Sequence Tracking) - Namespace: {TARGET_NAMESPACE}", flush=True)
+print(f"[*] Unified Agent V40 (SMART MATCH) - Namespace: {TARGET_NAMESPACE}", flush=True)
 
 METRICS_STORE = {}
 TOPOLOGY_STORE = {}
@@ -30,16 +30,22 @@ def k8s_metadata_updater():
             new_ip_map = {}
             new_uid_map = {}
             pods = v1.list_namespaced_pod(TARGET_NAMESPACE)
+            count = 0
             for pod in pods.items:
                 if not pod.metadata.labels: continue
                 app = pod.metadata.labels.get("app")
                 if not app: continue
+                
+                # IP -> App
                 if pod.status.pod_ip: new_ip_map[pod.status.pod_ip] = app
+                
+                # UID -> App (Store multiple formats)
                 if pod.metadata.uid:
                     uid = pod.metadata.uid
-                    new_uid_map[uid] = app
-                    new_uid_map[uid.replace("-", "_")] = app
-                    new_uid_map[uid.replace("-", "")] = app
+                    new_uid_map[uid] = app                 # Normal: a1-b2...
+                    new_uid_map[uid.replace("-", "_")] = app # Underscore: a1_b2...
+                    new_uid_map[uid.replace("-", "")] = app  # No Dash: a1b2...
+                    count += 1
             
             services = v1.list_namespaced_service(TARGET_NAMESPACE)
             for svc in services.items:
@@ -51,6 +57,12 @@ def k8s_metadata_updater():
             
             IP_TO_SVC = new_ip_map
             UID_TO_SVC = new_uid_map
+            # Heartbeat to confirm we have data
+            if count > 0:
+                print(f"✅ Metadata Sync: Tracking {count} Pods & {len(services.items)} Services", flush=True)
+            else:
+                print(f"⚠️ Metadata Sync: Found 0 Pods (Check Namespace/Labels)", flush=True)
+
         except Exception as e:
             print(f"K8s Error: {e}")
         time.sleep(5)
@@ -58,8 +70,12 @@ def k8s_metadata_updater():
 def get_service_from_pid(pid):
     if pid in CGROUP_TO_SVC: return CGROUP_TO_SVC[pid]
     try:
+        # Read the FULL cgroup path
         with open(f"/proc/{pid}/cgroup", "r") as f: content = f.read()
+        
+        # Heuristic: If it's a kubepods cgroup, try hard to find a match
         for uid, app in UID_TO_SVC.items():
+            # Case-insensitive substring match
             if uid.lower() in content.lower():
                 CGROUP_TO_SVC[pid] = app
                 return app
@@ -69,13 +85,14 @@ def get_service_from_pid(pid):
 class MetricsHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global LAST_SCRAPE_TIME
+
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
         current_time = time.time()
         time_delta = current_time - LAST_SCRAPE_TIME
-        if time_delta < 1: time_delta = 1 
+        if time_delta < 1: time_delta = 1 # Prevent division by zero
 
         final_data = {
             "metrics": {},
@@ -83,21 +100,19 @@ class MetricsHandler(BaseHTTPRequestHandler):
         }
         
         for svc, data in METRICS_STORE.items():
-            count = data["count"]
-            if count > 0:
-                # Average Microseconds -> Milliseconds
-                avg_latency_ms = round((data["sum_us"] / count) / 1000.0, 3)
-                rps = round(count / time_delta, 2)
-                error_rate = round(data["errors"] / time_delta, 2)
+            if data["count"] > 0:
+                avg_latency = int(data["sum"] / data["count"])
+                rps = round(data["count"] / time_delta, 2)
                 
                 final_data["metrics"][svc] = {
-                    "latency": avg_latency_ms,
+                    "latency": avg_latency,
                     "rps": rps,
-                    "error_rate": error_rate,
-                    "count": count
+                    "error_rate": data.get("errors", 0), # Send raw count or calc rate
+                    "count": data["count"]
                 }
+
                 data["errors"] = 0 
-                data["sum_us"] = 0
+                data["sum"] = 0
                 data["count"] = 0
 
         LAST_SCRAPE_TIME = current_time
@@ -105,52 +120,31 @@ class MetricsHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
 def run_agent():
-    # UPDATED BPFTRACE CODE WITH REQUEST COUNTER
     BPF_CODE = """
     #include <linux/in.h>
     
-    // Maps defined implicitly:
-    // @start[tid]      -> Timestamp
-    // @req_counts[pid] -> Total Request Count
-    
-    // 1. REQUEST START (READ)
+    // Track start times
     tracepoint:syscalls:sys_exit_read, tracepoint:syscalls:sys_exit_recvfrom { 
-        if (@start[tid] == 0) {
-            @start[tid] = nsecs;
-        }
+        @start[pid] = nsecs; 
     }    
     
-    // 2. REQUEST END (WRITE)
+    // Track Latency (Duration)
     tracepoint:syscalls:sys_enter_write, tracepoint:syscalls:sys_enter_sendto {
-        if (@start[tid] != 0) {
-            $delta_us = (nsecs - @start[tid]) / 1000;
+        $s = @start[pid];
+        if ($s != 0) {
+            $delta = (nsecs - $s) / 1000000;
             
-            if ($delta_us > 0 && $delta_us < 60000000) { 
-                // Increment Request Counter
-                @req_counts[pid]++;
-                
-                // OUTPUT: LAT PID DURATION REQ_ID
-                printf("LAT %d %d %d\\n", pid, $delta_us, @req_counts[pid]);
-            }
+            // FIX: Capture EVERYTHING, even 0ms requests
+            if ($delta >= 0) { printf("LAT %d %d\\n", pid, $delta); }
             
-            delete(@start[tid]);
+            delete(@start[pid]);
         }
     }
     
-    // 3. ERROR TRACKING
-    tracepoint:syscalls:sys_exit_write, tracepoint:syscalls:sys_exit_sendto,
-    tracepoint:syscalls:sys_exit_read, tracepoint:syscalls:sys_exit_recvfrom {
-        if (args->ret < 0) {
-            printf("ERR %d %ld\\n", pid, args->ret);
-        }
-    }
-    
-    // 4. TOPOLOGY
+    // Track Topology
     tracepoint:syscalls:sys_enter_connect {
         $addr = (struct sockaddr_in *)args->uservaddr;
-        if ($addr->sin_family == 2) { 
-            printf("CONN %d %s\\n", pid, ntop($addr->sin_addr.s_addr)); 
-        }
+        if ($addr->sin_family == 2) { printf("CONN %d %s\\n", pid, ntop($addr->sin_addr.s_addr)); }
     }
     """
     with open("sensor.bt", "w") as f: f.write(BPF_CODE)
@@ -172,30 +166,32 @@ def run_agent():
             pid = int(parts[1])
             svc = get_service_from_pid(pid)
             
+            # --- DEBUG LOGGING ---
             if event == "CONN":
                 dest_ip = parts[2]
                 dest_svc = IP_TO_SVC.get(dest_ip)
+                
+                # Only log relevant connections (ignore localhost/unknowns for clarity)
                 if svc and dest_svc and svc != dest_svc:
+                    print(f"🔗 DETECTED EDGE: {svc} -> {dest_svc}", flush=True)
                     if svc not in TOPOLOGY_STORE: TOPOLOGY_STORE[svc] = set()
                     TOPOLOGY_STORE[svc].add(dest_svc)
+                elif svc and not dest_svc and not dest_ip.startswith("127."):
+                    # Log unidentified external calls to help debugging
+                    print(f"❓ {svc} -> {dest_ip} (Unknown Dest)", flush=True)
+                elif not svc and "kubepods" in str(pid): # Pseudo-check if we missed a pod
+                    pass 
 
             if not svc: continue
             
             if event == "LAT":
-                lat_us = int(parts[2])
-                
-                # Check for Request ID (Added in V5.3)
-                if len(parts) > 3:
-                    req_id = int(parts[3])
-                    # OPTIONAL: Uncomment to see per-request logs
-                    print(f"🔍 {svc} (PID {pid}) | Req #{req_id} | {lat_us/1000}ms", flush=True)
-
-                if svc not in METRICS_STORE: METRICS_STORE[svc] = {"sum_us": 0, "count": 0, "errors": 0}
-                METRICS_STORE[svc]["sum_us"] += lat_us
+                lat = int(parts[2])
+                if svc not in METRICS_STORE: METRICS_STORE[svc] = {"sum": 0, "count": 0}
+                METRICS_STORE[svc]["sum"] += lat
                 METRICS_STORE[svc]["count"] += 1
                 
             if event == "ERR":
-                if svc not in METRICS_STORE: METRICS_STORE[svc] = {"sum_us": 0, "count": 0, "errors": 0}
+                if svc not in METRICS_STORE: METRICS_STORE[svc] = {"sum": 0, "count": 0, "errors": 0}
                 METRICS_STORE[svc]["errors"] += 1
             
         except Exception as e:

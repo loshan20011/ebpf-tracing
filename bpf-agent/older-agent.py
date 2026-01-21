@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from kubernetes import client, config
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
-print(f"[*] Unified Agent V5.3 (Sequence Tracking) - Namespace: {TARGET_NAMESPACE}", flush=True)
+print(f"[*] Unified Agent V5.2 (Syntax Fixed) - Namespace: {TARGET_NAMESPACE}", flush=True)
 
 METRICS_STORE = {}
 TOPOLOGY_STORE = {}
@@ -105,16 +105,16 @@ class MetricsHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
 def run_agent():
-    # UPDATED BPFTRACE CODE WITH REQUEST COUNTER
+    # CORRECT BPFTRACE SYNTAX
     BPF_CODE = """
     #include <linux/in.h>
     
-    // Maps defined implicitly:
-    // @start[tid]      -> Timestamp
-    // @req_counts[pid] -> Total Request Count
+    // In bpftrace, maps are defined implicitly like @start[key]
     
     // 1. REQUEST START (READ)
     tracepoint:syscalls:sys_exit_read, tracepoint:syscalls:sys_exit_recvfrom { 
+        // Only set start time if it DOES NOT exist (First read wins)
+        // This effectively ignores internal file reads occurring during the request
         if (@start[tid] == 0) {
             @start[tid] = nsecs;
         }
@@ -125,14 +125,12 @@ def run_agent():
         if (@start[tid] != 0) {
             $delta_us = (nsecs - @start[tid]) / 1000;
             
+            // Filter crazy outliers
             if ($delta_us > 0 && $delta_us < 60000000) { 
-                // Increment Request Counter
-                @req_counts[pid]++;
-                
-                // OUTPUT: LAT PID DURATION REQ_ID
-                printf("LAT %d %d %d\\n", pid, $delta_us, @req_counts[pid]);
+                printf("LAT %d %d\\n", pid, $delta_us);
             }
             
+            // Clear the timer so next request is fresh
             delete(@start[tid]);
         }
     }
@@ -183,13 +181,6 @@ def run_agent():
             
             if event == "LAT":
                 lat_us = int(parts[2])
-                
-                # Check for Request ID (Added in V5.3)
-                if len(parts) > 3:
-                    req_id = int(parts[3])
-                    # OPTIONAL: Uncomment to see per-request logs
-                    print(f"🔍 {svc} (PID {pid}) | Req #{req_id} | {lat_us/1000}ms", flush=True)
-
                 if svc not in METRICS_STORE: METRICS_STORE[svc] = {"sum_us": 0, "count": 0, "errors": 0}
                 METRICS_STORE[svc]["sum_us"] += lat_us
                 METRICS_STORE[svc]["count"] += 1
