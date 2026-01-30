@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eBPF Autoscaler</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-dagre/2.5.0/cytoscape-dagre.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1e1e1e; color: #fff; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #cy { flex: 1; width: 100%; height: 100%; }
+        
+        /* Floating Info Box */
+        #info-box {
+            position: absolute;
+            top: 20px; right: 20px;
+            width: 250px;
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none; /* Hidden by default */
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+        #info-box h3 { margin: 0 0 10px 0; font-size: 16px; color: #007acc; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px; }
+        .stat-label { color: #aaa; }
+        .stat-val { font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="cy"></div>
+
+    <div id="info-box">
+        <h3 id="node-name">Service Name</h3>
+        <div class="stat-row"><span class="stat-label">Latency:</span> <span id="node-lat" class="stat-val">-</span></div>
+        <div class="stat-row"><span class="stat-label">RPS:</span> <span id="node-rps" class="stat-val">-</span></div>
+        <div class="stat-row"><span class="stat-label">Errors:</span> <span id="node-err" class="stat-val">-</span></div>
+    </div>
+
+<script>
+    const API_URL = "/api/graph";
+    let selectedNodeId = null; // Track which node is clicked
+
+    var cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'background-color': '#007acc',
+                    'label': 'data(id)',
+                    'color': '#fff',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'width': 60, 'height': 60,
+                    'font-size': '12px'
+                }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 2,
+                    'line-color': '#555',
+                    'target-arrow-color': '#555',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier'
+                }
+            },
+            { selector: '.slow', style: { 'background-color': '#ff9800', 'line-color': '#ff9800' } },
+            { selector: '.critical', style: { 'background-color': '#f44336', 'line-color': '#f44336' } }
+        ],
+        layout: { name: 'breadthfirst', directed: true, padding: 50 }
+    });
+
+    function updateGraph(data) {
+        const metrics = data.metrics || {};
+        const topology = data.topology || {};
+
+        const services = new Set();
+        Object.entries(topology).forEach(([src, targets]) => {
+            services.add(src);
+            targets.forEach(t => services.add(t));
+        });
+        Object.keys(metrics).forEach(k => services.add(k));
+
+        const existingNodes = new Set();
+        cy.nodes().forEach(n => existingNodes.add(n.id()));
+
+        services.forEach(svc => {
+            if(svc.includes("10.") || svc.includes("172.") || svc === "bpf-agent" || svc === "autoscaler" || svc === "aggregator" || svc === "redis") return;
+
+            // Safe Metric Extraction
+            let lat = 0, rps = 0, err = 0;
+            if (metrics[svc]) {
+                lat = metrics[svc].latency || 0;
+                rps = metrics[svc].rps || 0;
+                err = metrics[svc].error_rate || 0;
+            }
+
+            let cls = "";
+            if (lat > 50) cls = "critical"; else if (lat > 20) cls = "slow";
+
+            if (!existingNodes.has(svc)) {
+                cy.add({ group: 'nodes', data: { id: svc, latency: lat, rps: rps, err: err }, classes: cls });
+            } else {
+                const node = cy.$id(svc);
+                node.data('latency', lat);
+                node.data('rps', rps);
+                node.data('err', err);
+                node.classes(cls);
+            }
+            
+            // Live Update Info Box if this node is selected
+            if (selectedNodeId === svc) {
+                document.getElementById('node-lat').innerText = lat.toFixed(2) + " ms";
+                document.getElementById('node-rps').innerText = rps.toFixed(2) + " req/s";
+                document.getElementById('node-err').innerText = err.toFixed(2) + " %";
+            }
+        });
+
+        // Add Edges
+        const existingEdges = new Set();
+        cy.edges().forEach(e => existingEdges.add(e.id()));
+
+        Object.entries(topology).forEach(([src, targets]) => {
+            if(src === "bpf-agent" || src === "autoscaler") return;
+            targets.forEach(tgt => {
+                if(tgt.includes("10.") || tgt.includes("172.")) return;
+                if(cy.$id(src).length && cy.$id(tgt).length) {
+                    const edgeId = `${src}->${tgt}`;
+                    if(!existingEdges.has(edgeId)) {
+                        cy.add({ group: 'edges', data: { id: edgeId, source: src, target: tgt } });
+                    }
+                }
+            });
+        });
+
+        if (existingNodes.size === 0 && services.size > 0) {
+            cy.layout({ name: 'breadthfirst', directed: true, spacingFactor: 1.5, padding: 50 }).run();
+        }
+    }
+
+    // CLICK HANDLER
+    cy.on('tap', 'node', function(evt){
+        const node = evt.target;
+        selectedNodeId = node.id();
+        
+        document.getElementById('info-box').style.display = 'block';
+        document.getElementById('node-name').innerText = selectedNodeId;
+        
+        // Immediate update from current data
+        document.getElementById('node-lat').innerText = (node.data('latency') || 0).toFixed(2) + " ms";
+        document.getElementById('node-rps').innerText = (node.data('rps') || 0).toFixed(2) + " req/s";
+        document.getElementById('node-err').innerText = (node.data('err') || 0).toFixed(2) + " %";
+    });
+
+    // Close on background click
+    cy.on('tap', function(evt){
+        if(evt.target === cy){
+            document.getElementById('info-box').style.display = 'none';
+            selectedNodeId = null;
+        }
+    });
+
+    setInterval(() => {
+        fetch(API_URL).then(r => r.json()).then(d => updateGraph(d)).catch(console.log);
+    }, 2000);
+</script>
+</body>
+</html>

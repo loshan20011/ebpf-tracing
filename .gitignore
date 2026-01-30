@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# Go
+*.exe
+*.test
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store

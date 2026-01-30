@@ -1,0 +1,65 @@
+# 1. CPU Service (Target: 5ms - Very strict to force scaling)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: cpu-slo
+spec:
+  targetDeployment: svc-cpu
+  sloLatency: 5
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 2. IO Service (Target: 100ms - Disk writes are slower)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: io-slo
+spec:
+  targetDeployment: svc-io
+  sloLatency: 100
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 3. Memory Service (Target: 20ms)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: mem-slo
+spec:
+  targetDeployment: svc-mem
+  sloLatency: 20
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 4. Chain Service (Target: 50ms - It calls others, so it takes longer)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: chain-slo
+spec:
+  targetDeployment: svc-chain
+  sloLatency: 50
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 5. Fanout Service (Target: 50ms)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: fanout-slo
+spec:
+  targetDeployment: svc-fanout
+  sloLatency: 50
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 6. Payment Microservice (Target: 5ms)
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: payment-slo
+spec:
+  targetDeployment: payment-microservice
+  sloLatency: 1      # Target: 5ms
+  minReplicas: 1
+  maxReplicas: 5

@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-gen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-gen
+  template:
+    metadata:
+      labels:
+        app: traffic-gen
+    spec:
+      containers:
+      - name: curl
+        image: curlimages/curl
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "🚀 Starting Full Spectrum Traffic Generator..."
+            while true; do
+              # 1. CPU (Compute Intensive)
+              curl -o /dev/null -s -w "%{http_code} : CPU\n" "http://gateway/cpu?count=1000"
+              
+              # 2. IO (Disk Intensive - write 1MB)
+              curl -o /dev/null -s -w "%{http_code} : IO\n" "http://gateway/io"
+              
+              # 3. MEM (Memory Intensive)
+              curl -o /dev/null -s -w "%{http_code} : MEM\n" "http://gateway/mem?size=10mb"
+              
+              # 4. CHAIN (Dependency Chain: Gateway -> Chain -> CPU)
+              curl -o /dev/null -s -w "%{http_code} : CHAIN\n" "http://gateway/chain"
+
+              # 5. FANOUT (Parallel: Gateway -> Fanout -> CPU & MEM)
+              curl -o /dev/null -s -w "%{http_code} : FANOUT\n" "http://gateway/fanout"
+              
+              sleep 0.5
+            done

@@ -1,0 +1,258 @@
+# --- GATEWAY ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+      - name: gateway
+        image: loshans/gateway:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  type: LoadBalancer
+  selector:
+    app: gateway
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+# --- SVC-CPU (8081) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-cpu
+  labels:
+    app: svc-cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-cpu
+  template:
+    metadata:
+      labels:
+        app: svc-cpu
+    spec:
+      containers:
+      - name: svc-cpu
+        image: loshans/svc-cpu:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-cpu
+spec:
+  selector:
+    app: svc-cpu
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+
+# --- SVC-IO (8082) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-io
+  labels:
+    app: svc-io
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-io
+  template:
+    metadata:
+      labels:
+        app: svc-io
+    spec:
+      containers:
+      - name: svc-io
+        image: loshans/svc-io:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-io
+spec:
+  selector:
+    app: svc-io
+  ports:
+    - protocol: TCP
+      port: 8082
+      targetPort: 8082
+
+# --- SVC-MEM (8083) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-mem
+  labels:
+    app: svc-mem
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-mem
+  template:
+    metadata:
+      labels:
+        app: svc-mem
+    spec:
+      containers:
+      - name: svc-mem
+        image: loshans/svc-mem:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8083
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-mem
+spec:
+  selector:
+    app: svc-mem
+  ports:
+    - protocol: TCP
+      port: 8083
+      targetPort: 8083
+
+# --- SVC-NET (8084) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-net
+  labels:
+    app: svc-net
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-net
+  template:
+    metadata:
+      labels:
+        app: svc-net
+    spec:
+      containers:
+      - name: svc-net
+        image: loshans/svc-net:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8084
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-net
+spec:
+  selector:
+    app: svc-net
+  ports:
+    - protocol: TCP
+      port: 8084
+      targetPort: 8084
+
+# --- SVC-CHAIN (8086) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-chain
+  labels:
+    app: svc-chain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-chain
+  template:
+    metadata:
+      labels:
+        app: svc-chain
+    spec:
+      containers:
+      - name: svc-chain
+        image: loshans/svc-chain:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8086
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-chain
+spec:
+  selector:
+    app: svc-chain
+  ports:
+    - protocol: TCP
+      port: 8086
+      targetPort: 8086
+
+# --- SVC-FANOUT (8087) ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svc-fanout
+  labels:
+    app: svc-fanout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svc-fanout
+  template:
+    metadata:
+      labels:
+        app: svc-fanout
+    spec:
+      containers:
+      - name: svc-fanout
+        image: loshans/svc-fanout:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8087
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-fanout
+spec:
+  selector:
+    app: svc-fanout
+  ports:
+    - protocol: TCP
+      port: 8087
+      targetPort: 8087
