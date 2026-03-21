@@ -1,0 +1,10 @@
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: scenario-catalogue-slo
+  namespace: sock-shop
+spec:
+  targetDeployment: catalogue
+  sloLatency: 4
+  minReplicas: 1
+  maxReplicas: 6

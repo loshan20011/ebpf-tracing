@@ -1,0 +1,25 @@
+phases:
+  - start_s: 0
+    end_s: 180
+    target_rps: 25
+routes:
+  - name: home
+    group: browse
+    method: GET
+    path: /
+    weight: 30
+  - name: catalogue
+    group: browse
+    method: GET
+    path: /catalogue
+    weight: 55
+  - name: cart
+    group: cart
+    method: GET
+    path: /cart
+    weight: 10
+  - name: customer_orders
+    group: checkout
+    method: GET
+    path: /customer-orders.html
+    weight: 5

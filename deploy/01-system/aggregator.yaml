@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aggregator-sa
+  namespace: thrive-scale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggregator-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: ["autoscaling.fyp.io"]
+  resources: ["serviceslos"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggregator-binding
+subjects:
+- kind: ServiceAccount
+  name: aggregator-sa
+  namespace: thrive-scale
+roleRef:
+  kind: ClusterRole
+  name: aggregator-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+  namespace: thrive-scale
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+    spec:
+      serviceAccountName: aggregator-sa
+      containers:
+      - name: aggregator
+        image: loshans/aggregator:v1
+        imagePullPolicy: Never
+        env:
+        - name: TARGET_NAMESPACE
+          value: "sock-shop"
+        - name: AGENT_NAMESPACE
+          value: "thrive-scale"
+        - name: SCRAPE_INTERVAL_SECONDS
+          value: "2"
+        - name: CONTROL_API_TOKEN
+          value: ""
+        - name: REDIS_MAX_CONNECTIONS
+          value: "32"
+        - name: REDIS_POOL_TIMEOUT
+          value: "5"
+        - name: REDIS_STARTUP_RETRIES
+          value: "20"
+        - name: REDIS_STARTUP_DELAY_SECONDS
+          value: "2"
+        - name: MAX_WORKERS
+          value: "20"
+        ports:
+        - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregator
+  namespace: thrive-scale
+spec:
+  type: NodePort
+  selector:
+    app: aggregator
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30938

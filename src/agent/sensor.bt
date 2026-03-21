@@ -1,0 +1,99 @@
+#include <linux/in.h>
+#include <linux/in6.h>
+
+tracepoint:syscalls:sys_enter_read
+{
+  $key = (((uint64)pid) << 32) | (uint32)args->fd;
+  @read_start[$key] = nsecs;
+  @read_fd[tid] = args->fd;
+  @read_buf[tid] = args->buf;
+}
+
+tracepoint:syscalls:sys_enter_recvfrom
+{
+  $key = (((uint64)pid) << 32) | (uint32)args->fd;
+  @read_start[$key] = nsecs;
+  @read_fd[tid] = args->fd;
+  @read_buf[tid] = args->ubuf;
+}
+
+tracepoint:syscalls:sys_enter_recvmsg
+{
+  $key = (((uint64)pid) << 32) | (uint32)args->fd;
+  @read_start[$key] = nsecs;
+  @read_fd[tid] = args->fd;
+}
+
+tracepoint:syscalls:sys_exit_read,tracepoint:syscalls:sys_exit_recvfrom
+{
+  $fd = @read_fd[tid];
+  $buf = @read_buf[tid];
+  if ($fd >= 0 && $buf != 0 && args->ret > 4) {
+    $first4 = *(uint32 *)$buf;
+    /* "GET ", "POST", "PUT ", "DELE" */
+    if ($first4 == 0x20544547 || $first4 == 0x54534f50 || $first4 == 0x20545550 || $first4 == 0x454c4544) {
+      printf("EVT REQ ts=%llu pid=%d tid=%d fd=%d\n", nsecs, pid, tid, $fd);
+    }
+  }
+  delete(@read_fd[tid]);
+  delete(@read_buf[tid]);
+}
+
+tracepoint:syscalls:sys_exit_recvmsg
+{
+  $fd = @read_fd[tid];
+  if ($fd >= 0 && args->ret > 4) {
+    printf("EVT REQ ts=%llu pid=%d tid=%d fd=%d\n", nsecs, pid, tid, $fd);
+  }
+  delete(@read_fd[tid]);
+}
+
+tracepoint:syscalls:sys_enter_write,tracepoint:syscalls:sys_enter_writev,tracepoint:syscalls:sys_enter_sendto,tracepoint:syscalls:sys_enter_sendmsg
+{
+  $key = (((uint64)pid) << 32) | (uint32)args->fd;
+  $start = @read_start[$key];
+  if ($start != 0) {
+    $delta_us = (nsecs - $start) / 1000;
+    if ($delta_us > 0) {
+      printf("EVT NET ts=%llu pid=%d tid=%d fd=%d latency_us=%llu\n", nsecs, pid, tid, args->fd, $delta_us);
+    }
+    delete(@read_start[$key]);
+  }
+}
+
+tracepoint:syscalls:sys_enter_connect
+{
+  $addr = (struct sockaddr *)args->uservaddr;
+  if ($addr->sa_family == 2) {
+    $addr4 = (struct sockaddr_in *)args->uservaddr;
+    $port = ((uint16)$addr4->sin_port >> 8) | (((uint16)$addr4->sin_port & 0xff) << 8);
+    printf("EVT CONN ts=%llu pid=%d tid=%d dst_ip=%s dst_port=%d\n", nsecs, pid, tid, ntop($addr4->sin_addr.s_addr), $port);
+  }
+}
+
+tracepoint:sched:sched_wakeup
+{
+  @wakeup_ts[args->pid] = nsecs;
+  @wakeup_cpu[args->pid] = args->target_cpu;
+}
+
+tracepoint:sched:sched_switch
+{
+  $next = args->next_pid;
+  $start = @wakeup_ts[$next];
+  if ($start != 0) {
+    $delay_us = (nsecs - $start) / 1000;
+    if ($delay_us > 0) {
+      $wake_cpu = @wakeup_cpu[$next];
+      printf("EVT RUNQ ts=%llu pid=%d tid=%d delay_us=%llu wakeup_cpu=%d run_cpu=%d\n", nsecs, $next, $next, $delay_us, $wake_cpu, cpu);
+    }
+    delete(@wakeup_ts[$next]);
+    delete(@wakeup_cpu[$next]);
+  }
+}
+
+tracepoint:syscalls:sys_enter_close
+{
+  $key = (((uint64)pid) << 32) | (uint32)args->fd;
+  delete(@read_start[$key]);
+}

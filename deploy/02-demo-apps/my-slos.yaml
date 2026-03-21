@@ -1,0 +1,59 @@
+# 1. CPU Service
+# Small local CPU-bound handler. Keep this relatively tight so CPU pressure can still trigger scaling.
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: cpu-slo
+spec:
+  targetDeployment: svc-cpu
+  sloLatency: 10
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 2. IO Service
+# Intentionally sleeps around 80ms, so a looser target is appropriate.
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: io-slo
+spec:
+  targetDeployment: svc-io
+  sloLatency: 150
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 3. Memory Service
+# This workload allocates roughly 100MB per request. It is not a CPU-local bottleneck demo, so avoid an unrealistically strict SLO.
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: mem-slo
+spec:
+  targetDeployment: svc-mem
+  sloLatency: 80
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 4. Chain Service
+# Calls the CPU service synchronously, so it should allow for downstream latency plus call overhead.
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: chain-slo
+spec:
+  targetDeployment: svc-chain
+  sloLatency: 25
+  minReplicas: 1
+  maxReplicas: 5
+---
+# 5. Fanout Service
+# Fans out to CPU and IO in parallel, so its latency is dominated by the slower IO branch.
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: fanout-slo
+spec:
+  targetDeployment: svc-fanout
+  sloLatency: 120
+  minReplicas: 1
+  maxReplicas: 5

@@ -1,0 +1,43 @@
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: boutique-frontend-slo
+  namespace: boutique
+spec:
+  targetDeployment: frontend
+  sloLatency: 150
+  minReplicas: 1
+  maxReplicas: 10
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: boutique-recommendationservice-slo
+  namespace: boutique
+spec:
+  targetDeployment: recommendationservice
+  sloLatency: 75
+  minReplicas: 1
+  maxReplicas: 10
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: boutique-cartservice-slo
+  namespace: boutique
+spec:
+  targetDeployment: cartservice
+  sloLatency: 100
+  minReplicas: 1
+  maxReplicas: 5
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: boutique-checkoutservice-slo
+  namespace: boutique
+spec:
+  targetDeployment: checkoutservice
+  sloLatency: 120
+  minReplicas: 1
+  maxReplicas: 8

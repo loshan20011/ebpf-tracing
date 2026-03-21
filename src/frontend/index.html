@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThriveScale</title>
+  <style>
+    :root {
+      --bg: #fff1e8;
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-strong: rgba(255, 255, 255, 0.96);
+      --ink: #39140b;
+      --muted: #754738;
+      --line: #f0c6b2;
+      --accent: #ff6b1a;
+      --accent-strong: #ab310d;
+      --accent-soft: #ffe1d1;
+      --warn: #ff9723;
+      --warn-soft: #fff0d9;
+      --shadow: 0 18px 44px rgba(170, 61, 18, 0.14);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(255, 119, 35, 0.24), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(255, 167, 41, 0.24), transparent 32%),
+        linear-gradient(135deg, #fff7f2, #ffe6d7 48%, #fff0e3);
+      min-height: 100vh;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(14px);
+      background: rgba(255, 246, 239, 0.84);
+      border-bottom: 1px solid rgba(240, 198, 178, 0.8);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #ff5b1f, #ff9c1d);
+      box-shadow: 0 12px 28px rgba(171, 49, 13, 0.28);
+      overflow: hidden;
+    }
+
+    .brand-mark svg {
+      width: 34px;
+      height: 34px;
+      display: block;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 18px;
+      border-radius: 999px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .cta:hover {
+      transform: translateY(-1px);
+    }
+
+    .cta-primary {
+      background: var(--accent);
+      color: #f7fbf9;
+      box-shadow: 0 12px 24px rgba(17, 72, 56, 0.18);
+    }
+
+    .cta-secondary {
+      background: var(--surface-strong);
+      border-color: var(--line);
+      color: var(--ink);
+    }
+
+    .hero {
+      padding: 56px 0 34px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .hero-copy,
+    .hero-panel,
+    .section-card,
+    .contact-card {
+      background: var(--surface);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+    }
+
+    .hero-copy {
+      padding: 34px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      font-family: Georgia, "Times New Roman", serif;
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 20px;
+      font-size: clamp(2.4rem, 5vw, 4.4rem);
+      line-height: 0.98;
+      letter-spacing: -0.03em;
+    }
+
+    .hero-copy p {
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+      max-width: 62ch;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 24px;
+    }
+
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 26px;
+    }
+
+    .stat {
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid #dde5da;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 26px;
+      margin-bottom: 4px;
+      color: var(--accent-strong);
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .hero-panel {
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      justify-content: space-between;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 239, 229, 0.96)),
+        var(--surface);
+    }
+
+    .logo-card {
+      padding: 28px 22px 22px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #ff5b1f, #ff9a1d);
+      border: 1px solid rgba(171, 49, 13, 0.28);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      color: #fff7f4;
+      text-align: center;
+      overflow: visible;
+    }
+
+    .logo-art {
+      width: min(100%, 280px);
+      margin: 0 auto 12px;
+      display: block;
+      filter: drop-shadow(0 16px 20px rgba(126, 29, 0, 0.26));
+      overflow: visible;
+      height: auto;
+      border-radius: 26px;
+    }
+
+    .logo-name {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2rem, 4vw, 3.1rem);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      text-transform: lowercase;
+      text-shadow: 0 6px 0 rgba(145, 33, 4, 0.28);
+    }
+
+    .logo-sub {
+      margin-top: 6px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: lowercase;
+      color: rgba(255, 247, 244, 0.92);
+    }
+
+    .panel-box {
+      padding: 18px;
+      border-radius: 20px;
+      background: #fbfcf9;
+      border: 1px solid #dbe3d6;
+    }
+
+    .panel-box p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #fff1e8;
+      border: 1px solid #f4c9b3;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .section {
+      padding: 16px 0 6px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    .section-head p {
+      margin: 0;
+      max-width: 66ch;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .grid-3,
+    .grid-2,
+    .grid-4 {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .section-card {
+      padding: 22px;
+    }
+
+    .section-card p,
+    .section-card li {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .section-card ul,
+    .section-card ol {
+      margin: 12px 0 0;
+      padding-left: 18px;
+    }
+
+    .section-card ol li + li,
+    .section-card ul li + li {
+      margin-top: 8px;
+    }
+
+    .problem-card {
+      border-top: 5px solid var(--warn);
+    }
+
+    .solution-card {
+      border-top: 5px solid var(--accent);
+    }
+
+    .feature-card {
+      padding-top: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: 100%;
+      height: 6px;
+      background: linear-gradient(90deg, var(--accent), #89b7a0);
+    }
+
+    .step-num {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .cta-band {
+      margin: 28px 0 18px;
+      padding: 26px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, #f4511b, #ff7f1a 56%, #ffab2d);
+      color: #f5fbf8;
+      box-shadow: 0 22px 44px rgba(171, 49, 13, 0.22);
+    }
+
+    .cta-band p {
+      margin: 10px 0 0;
+      color: rgba(245, 251, 248, 0.84);
+      max-width: 64ch;
+      line-height: 1.6;
+    }
+
+    .cta-band .hero-actions {
+      margin-top: 18px;
+    }
+
+    .cta-band .cta-secondary {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: #f5fbf8;
+    }
+
+    .contact {
+      padding: 8px 0 56px;
+    }
+
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr;
+      gap: 16px;
+    }
+
+    .contact-card {
+      padding: 24px;
+    }
+
+    .contact-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .contact-line {
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: #fff6f0;
+      border: 1px solid #f1d0bf;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    footer {
+      padding: 0 0 34px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .contact-grid,
+      .grid-3,
+      .grid-4,
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        align-items: start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="shell nav-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" role="presentation">
+            <rect x="11" y="35" width="42" height="12" rx="3" fill="#f6f7fb" stroke="#9f290a" stroke-width="3"></rect>
+            <rect x="16" y="25" width="32" height="10" rx="3" fill="#ffffff" stroke="#9f290a" stroke-width="3"></rect>
+            <path d="M19 16h26l7 5v5H12v-5l7-5z" fill="#ffffff" stroke="#9f290a" stroke-width="3" stroke-linejoin="round"></path>
+            <path d="M29 19h12v8l-5-4-7-4z" fill="#ff6b1a"></path>
+            <circle cx="20" cy="41" r="2.2" fill="#ff5a14"></circle>
+            <circle cx="27" cy="41" r="2.2" fill="#ff9f1f"></circle>
+            <circle cx="34" cy="41" r="2.2" fill="#2db35a"></circle>
+            <circle cx="41" cy="41" r="2.2" fill="#28a6f2"></circle>
+          </svg>
+        </span>
+        <span>ThriveScale</span>
+      </a>
+      <div class="nav-links">
+        <a href="#problem">Problem</a>
+        <a href="#gaps">Research Gaps</a>
+        <a href="#dashboard">Dashboard</a>
+        <a href="#contact">Contact</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Deterministic Kubernetes Autoscaling</span>
+        <h1>Expose the real bottleneck before you scale the wrong service.</h1>
+        <p>
+          ThriveScale is built to move beyond threshold-only autoscaling. It combines
+          service-level QoS, runtime dependency awareness, and low-level kernel evidence
+          to determine whether a microservice should scale, or whether the delay is really
+          coming from a downstream dependency.
+        </p>
+        <div class="hero-actions">
+          <a class="cta cta-primary" href="/dashboard">Open Dashboard</a>
+          <a class="cta cta-secondary" href="#dashboard">See How It Works</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat">
+            <strong>3</strong>
+            <span>core research gaps addressed in the current scope</span>
+          </div>
+          <div class="stat">
+            <strong>2s</strong>
+            <span>target control interval for near-real-time decisions</span>
+          </div>
+          <div class="stat">
+            <strong>eBPF</strong>
+            <span>kernel observability without mandatory service mesh dependency</span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="hero-panel">
+        <div class="logo-card">
+          <img class="logo-art" src="/assets/thrivescale-logo.svg" alt="ThriveScale logo" />
+        </div>
+        <div class="panel-box">
+          <h3>What ThriveScale is solving</h3>
+          <p>
+            Conventional autoscalers often react to coarse CPU or memory thresholds, but
+            that can miss the real cause of latency. A service might look slow because it
+            is CPU-starved, because it is blocked by a dependency, or because traffic rose
+            while QoS is still healthy. Those cases should not be treated the same way.
+          </p>
+        </div>
+        <div class="panel-box">
+          <h3>What makes it different</h3>
+          <div class="tag-row">
+            <span class="tag">QoS-aware</span>
+            <span class="tag">eBPF-informed</span>
+            <span class="tag">Dependency-aware</span>
+            <span class="tag">Deterministic</span>
+            <span class="tag">Horizontal only</span>
+            <span class="tag">Explainable traces</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="section" id="problem">
+      <div class="section-head">
+        <div>
+          <h2>The Problem Space</h2>
+        </div>
+        <p>
+          ThriveScale focuses on microservice autoscaling when latency is user-visible,
+          but the root cause is not obvious from coarse infrastructure signals alone.
+        </p>
+      </div>
+      <div class="grid-3">
+        <article class="section-card problem-card">
+          <h3>Threshold-only scaling can be misleading</h3>
+          <p>
+            CPU spikes, low-level scheduler noise, or short bursts do not always mean a
+            service should scale. Scaling the wrong component wastes replicas and still
+            leaves the user-facing latency problem unresolved.
+          </p>
+        </article>
+        <article class="section-card problem-card">
+          <h3>Dependency delay is easy to misread</h3>
+          <p>
+            A service may violate its SLO because it is waiting on another service, a
+            datastore, or an external dependency. In that case, scaling the root service
+            alone can make the system noisier rather than healthier.
+          </p>
+        </article>
+        <article class="section-card problem-card">
+          <h3>Operators need explainability</h3>
+          <p>
+            If a framework scales automatically, operators need to know why. ThriveScale
+            keeps decision traces, topology context, and bottleneck hints visible so the
+            scaling outcome can be reviewed rather than guessed.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="gaps">
+      <div class="section-head">
+        <div>
+          <h2>Research Gaps Addressed</h2>
+        </div>
+        <p>
+          The current implementation scope is organized around the three gaps identified
+          in the thesis and reflected in the live system.
+        </p>
+      </div>
+      <div class="grid-3">
+        <article class="section-card solution-card">
+          <h3>Gap 1: External-tool dependence for QoS and dependency visibility</h3>
+          <p>
+            ThriveScale collects kernel-side runtime evidence and service-level truth
+            without requiring a service mesh as a mandatory part of the core decision path.
+          </p>
+        </article>
+        <article class="section-card solution-card">
+          <h3>Gap 2: Difficulty identifying the true bottleneck</h3>
+          <p>
+            The framework combines QoS pressure, throughput context, dependency structure,
+            service handling delay, dependency delay, and run queue evidence to decide
+            whether scaling is locally useful.
+          </p>
+        </article>
+        <article class="section-card solution-card">
+          <h3>Gap 3: Lack of deterministic and explainable autoscaling</h3>
+          <p>
+            Instead of requiring ML, DL, or RL model training at runtime, ThriveScale
+            uses explicit deterministic decision logic, cooldown control, and stored
+            decision traces that operators can inspect directly.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="dashboard">
+      <div class="section-head">
+        <div>
+          <h2>What You Can Do In The Dashboard</h2>
+        </div>
+        <p>
+          The live dashboard is the operator surface for monitoring, explanation, control,
+          and support workflow in the current implementation.
+        </p>
+      </div>
+      <div class="grid-4">
+        <article class="section-card feature-card">
+          <h3>Observe Service Health</h3>
+          <p>
+            View P90 latency, SLO target, throughput, service handling latency,
+            dependency delay, external wait, run queue behavior, health state, and
+            bottleneck hints for each service.
+          </p>
+        </article>
+        <article class="section-card feature-card">
+          <h3>See Runtime Dependencies</h3>
+          <p>
+            Inspect the live dependency map to understand how traffic flows and which
+            components are likely contributing to downstream latency.
+          </p>
+        </article>
+        <article class="section-card feature-card">
+          <h3>Control The System</h3>
+          <p>
+            Start or stop controlled traffic, update SLO settings, scale a deployment to
+            minimum, or set replicas manually when validation or intervention is needed.
+          </p>
+        </article>
+        <article class="section-card feature-card">
+          <h3>Review Evidence</h3>
+          <p>
+            Inspect alerts, decision traces, audit events, and support tickets so the
+            autoscaler remains understandable, reviewable, and operationally usable.
+          </p>
+        </article>
+      </div>
+
+      <div class="grid-2" style="margin-top:16px">
+        <article class="section-card">
+          <h3>How To Use It</h3>
+          <ol>
+            <li>Open the dashboard and confirm the target services and their current health state.</li>
+            <li>Review or update the SLO and replica bounds for the selected service.</li>
+            <li>Start controlled traffic when you want to exercise the autoscaler under load.</li>
+            <li>Watch the dependency map, alerts, and trace log to understand what the controller is seeing.</li>
+            <li>Use manual controls or the Support Desk when validation, intervention, or assistance is needed.</li>
+          </ol>
+        </article>
+        <article class="section-card">
+          <h3>Why The Dashboard Matters</h3>
+          <p>
+            The dashboard is not only a visual layer. It is how ThriveScale exposes the
+            reasoning behind scaling decisions. Operators can see when latency is local,
+            when a dependency is dominating, and when evidence is too weak for safe action.
+          </p>
+        </article>
+      </div>
+
+      <div class="cta-band">
+        <h2>Ready to explore the live control plane?</h2>
+        <p>
+          Open the live dashboard to view metrics, dependency relationships, alerts,
+          decision traces, manual controls, and the built-in Support Desk.
+        </p>
+        <div class="hero-actions">
+          <a class="cta cta-primary" href="/dashboard">Go To Dashboard</a>
+          <a class="cta cta-secondary" href="#contact">Need Setup Help?</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="contact" id="contact">
+      <div class="section-head">
+        <div>
+          <h2>Contact Us To Set Up ThriveScale</h2>
+        </div>
+        <p>
+          If you want to install, validate, or tune ThriveScale for your own cluster,
+          start with the built-in support workflow and the deployment guidance already
+          provided with the project.
+        </p>
+      </div>
+      <div class="contact-grid">
+        <article class="contact-card">
+          <h3>Recommended Setup Path</h3>
+          <div class="contact-list">
+            <div class="contact-line">1. Use the deployment guide to bring up ThriveScale and the target microservice environment.</div>
+            <div class="contact-line">2. Open the dashboard and use the Support Desk panel to create a setup or support ticket.</div>
+            <div class="contact-line">3. Review alerts, traces, and audit events as the system is tuned for your workload.</div>
+          </div>
+        </article>
+        <article class="contact-card">
+          <h3>Quick Actions</h3>
+          <div class="contact-list">
+            <div class="contact-line"><a href="/dashboard">Open the dashboard</a></div>
+            <div class="contact-line"><a href="/dashboard#support">Go to the Support Desk section</a></div>
+            <div class="contact-line">Use the built-in ticket workflow to request setup assistance.</div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    ThriveScale: deterministic, dependency-aware horizontal autoscaling with kernel-informed bottleneck visibility.
+  </footer>
+</body>
+</html>

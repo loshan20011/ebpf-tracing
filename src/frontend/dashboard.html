@@ -1,0 +1,1394 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThriveScale Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <style>
+    :root {
+      --bg-0: #fff4ec;
+      --bg-1: #ffe4d2;
+      --ink: #35160d;
+      --card: rgba(255, 255, 255, 0.92);
+      --ok: #2f8f4e;
+      --bad: #c73a2e;
+      --idle: #81878f;
+      --starved: #b71c1c;
+      --blocked: #d97706;
+      --edge: #8f654f;
+      --accent: #ff6b1a;
+      --accent-strong: #a92f0b;
+      --line: #efc6b1;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Gill Sans", "Verdana", sans-serif;
+      background:
+        radial-gradient(circle at 12% 15%, rgba(255, 122, 33, 0.22) 0, transparent 35%),
+        radial-gradient(circle at 85% 78%, rgba(255, 176, 61, 0.22) 0, transparent 42%),
+        linear-gradient(135deg, var(--bg-0), var(--bg-1));
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 247, 241, 0.78);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .title { font-size: 18px; font-weight: 700; }
+    .brand-link {
+      color: inherit;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      flex: 0 0 auto;
+      box-shadow: 0 8px 16px rgba(143, 52, 10, 0.18);
+    }
+    .stats { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+    .pill { padding: 5px 8px; border-radius: 999px; border: 1px solid #f0c4ae; background: #fff2e9; }
+
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 430px;
+    }
+    #cy { min-height: 0; border-right: 1px solid var(--line); }
+    .side {
+      padding: 12px;
+      overflow: auto;
+      background: var(--card);
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-content: start;
+    }
+    .panel {
+      border: 1px solid #ecd0c0;
+      border-radius: 10px;
+      background: #fffaf6;
+      padding: 10px;
+      margin-bottom: 0;
+      min-width: 0;
+    }
+    .panel-wide { grid-column: 1 / -1; }
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      border-bottom: 1px solid #f2dbcf;
+      padding-bottom: 6px;
+    }
+    .kv { margin: 6px 0; display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .kv span, .kv strong { min-width: 0; }
+    .kv strong { text-align: right; overflow-wrap: anywhere; }
+    .dim { opacity: 0.7; }
+    .healthy { color: var(--ok); font-weight: 700; }
+    .violating { color: var(--bad); font-weight: 700; }
+    .idle { color: var(--idle); font-weight: 700; }
+    .starved { color: var(--starved); font-weight: 700; }
+    .blocked { color: var(--blocked); font-weight: 700; }
+
+    .trace-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .trace-table th, .trace-table td {
+      border-bottom: 1px solid #f2dfd4;
+      padding: 4px 3px;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    .trace-table th {
+      position: sticky;
+      top: 0;
+      background: #fff1e7;
+      z-index: 1;
+    }
+    .trace-wrap {
+      max-height: 46vh;
+      overflow: auto;
+      border: 1px solid #e0e7d8;
+      border-radius: 8px;
+      background: #fff;
+      min-width: 0;
+    }
+
+    .ctrl-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .ctrl-grid > * { min-width: 0; }
+    .ctrl-grid.single { grid-template-columns: 1fr; }
+    .ctrl-grid label {
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    input, select, button {
+      font: inherit;
+      padding: 7px 8px;
+      border-radius: 8px;
+      border: 1px solid #efc8b2;
+      background: #fff;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      background: #fff0e5;
+      color: var(--accent-strong);
+    }
+    button.warn { background: #fff4e3; border-color: #e3b36f; }
+    button.danger { background: #fdeae6; border-color: #df9e90; }
+    .msg {
+      margin-top: 6px;
+      font-size: 12px;
+      min-height: 16px;
+    }
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .alert-list, .ticket-list, .replica-list, .route-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 24vh;
+      overflow: auto;
+    }
+    .alert-row, .ticket-card, .replica-card, .route-card {
+      border: 1px solid #efd7cb;
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+      font-size: 12px;
+    }
+    .alert-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 78px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      text-transform: uppercase;
+    }
+    .badge-critical {
+      background: #f9e1df;
+      color: #8e2018;
+      border-color: #d79c9c;
+    }
+    .badge-warning {
+      background: #f8efe3;
+      color: #9a6200;
+      border-color: #d7b586;
+    }
+    .badge-info {
+      background: #e9f1f8;
+      color: #245b8c;
+      border-color: #a9c2d8;
+    }
+    .mini {
+      font-size: 11px;
+    }
+    .ticket-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 5px;
+    }
+    .ticket-meta span {
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: #fff1e7;
+      border: 1px solid #f0d4c6;
+    }
+    .replica-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 5px;
+    }
+    .replica-meta span {
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: #fff1e7;
+      border: 1px solid #f0d4c6;
+    }
+    .route-card strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .route-path {
+      font-family: Consolas, "Courier New", monospace;
+      color: var(--accent-strong);
+    }
+    .replica-hot {
+      color: var(--accent-strong);
+      font-weight: 700;
+    }
+    textarea {
+      font: inherit;
+      padding: 7px 8px;
+      border-radius: 8px;
+      border: 1px solid #efc8b2;
+      background: #fff;
+      min-height: 72px;
+      resize: vertical;
+    }
+    .full {
+      grid-column: 1 / -1;
+    }
+    .hint {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      margin-left: 4px;
+      border-radius: 999px;
+      border: 1px solid #da9d82;
+      background: #fff2ea;
+      color: #8a482d;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: help;
+      vertical-align: middle;
+    }
+    .label-inline {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      #cy { border-right: none; border-bottom: 1px solid var(--line); min-height: 55vh; }
+      .side { grid-template-columns: 1fr; }
+      .panel-wide { grid-column: auto; }
+      .trace-wrap { max-height: 34vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="title">
+      <a class="brand-link" href="/">
+        <img class="brand-logo" src="/assets/thrivescale-logo.svg" alt="ThriveScale logo" />
+        <span>ThriveScale Dashboard</span>
+      </a>
+    </div>
+    <div class="stats">
+      <a class="pill" href="/" style="text-decoration:none">Overview</a>
+      <span class="pill">Poll: 2s</span>
+      <span class="pill" id="sSystem">System: --</span>
+      <span class="pill" id="sNamespace">Namespace: --</span>
+      <span class="pill" id="sBase">Base: --</span>
+      <label class="pill"><input id="toggleInfra" type="checkbox" style="vertical-align:middle; margin-right:4px;">Show Infra</label>
+      <span class="pill" id="sHealthy">Healthy: 0</span>
+      <span class="pill" id="sViolating">Violating: 0</span>
+      <span class="pill" id="sIdle">Inactive: 0</span>
+      <span class="pill" id="sUpdated">Updated: --</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div id="cy"></div>
+    <aside class="side">
+      <section class="panel">
+        <h3>Node Status</h3>
+        <div id="nodeEmpty" class="dim">Select a node from the graph.</div>
+        <div id="nodeData" style="display:none">
+          <div class="kv"><span class="dim">Service</span><strong id="nName">-</strong></div>
+          <div class="kv"><span class="dim">Replicas</span><strong id="nReplicas">-</strong></div>
+          <div class="kv"><span class="dim">Replica Bounds</span><strong id="nReplicaBounds">-</strong></div>
+          <div class="kv">
+            <span class="dim label-inline">P90 Latency<span class="hint" title="Current short-window p90 response latency for this service in milliseconds.">i</span></span>
+            <strong id="nP90">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">SLO Target<span class="hint" title="Configured latency objective used by the autoscaler for this service.">i</span></span>
+            <strong id="nSlo">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Throughput<span class="hint" title="Current request rate seen for this service. It gives demand context, but does not by itself trigger scaling.">i</span></span>
+            <strong id="nRps">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Service Handling<span class="hint" title="Latency estimated to be spent inside this service itself, which is the main local bottleneck signal.">i</span></span>
+            <strong id="nHandle">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Dependency Delay<span class="hint" title="Latency attributed to downstream internal dependencies rather than this service's own handling.">i</span></span>
+            <strong id="nDep">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">External Wait<span class="hint" title="Estimated time spent waiting on external dependencies or network-side effects.">i</span></span>
+            <strong id="nExternal">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">RunQ / Threshold<span class="hint" title="Current run queue delay against the learned threshold. Sustained excess suggests CPU scheduling pressure.">i</span></span>
+            <strong id="nRunq">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Health<span class="hint" title="High-level state derived from SLO status and recent activity.">i</span></span>
+            <strong id="nHealth">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Bottleneck Hint<span class="hint" title="Simple dashboard hint showing whether the current symptoms look CPU-starved, dependency-blocked, or healthy.">i</span></span>
+            <strong id="nTag">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Deployment Context</h3>
+        <div class="kv"><span class="dim">Deployed System</span><strong id="ctxSystem">-</strong></div>
+        <div class="kv"><span class="dim">App Namespace</span><strong id="ctxNamespace">-</strong></div>
+        <div class="kv"><span class="dim">Entry Service</span><strong id="ctxEntry">-</strong></div>
+        <div class="kv"><span class="dim">Traffic Base URL</span><strong id="ctxBase">-</strong></div>
+        <div id="ctxNote" class="msg dim"></div>
+        <div id="routeRows" class="route-list"></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Control Plane</h3>
+
+        <div class="ctrl-grid">
+          <label>Route
+            <select id="cRoute"></select>
+          </label>
+          <label>Requests
+            <input id="cReq" type="number" min="1" value="20000" />
+          </label>
+          <label>Concurrency
+            <input id="cConc" type="number" min="1" value="10" />
+          </label>
+          <label>Base URL
+            <input id="cBase" value="http://gateway" />
+          </label>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <button id="btnTrafficStart">Start Traffic</button>
+          <button id="btnTrafficStop" class="warn">Stop All Traffic Jobs</button>
+        </div>
+
+        <hr style="border:none; border-top:1px solid #e1e8d9; margin:10px 0">
+
+        <div class="ctrl-grid">
+          <label>Deployment
+            <select id="sloDeployment"></select>
+          </label>
+          <label>SLO (ms)
+            <input id="sloLatency" type="number" min="1" value="50" />
+          </label>
+          <label>Min Replicas
+            <input id="sloMin" type="number" min="1" value="1" />
+          </label>
+          <label>Max Replicas
+            <input id="sloMax" type="number" min="1" value="5" />
+          </label>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <button id="btnSloUpdate">Update SLO</button>
+          <button id="btnScaleDownMin" class="warn">Scale To Min</button>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <label>Manual replicas
+            <input id="manualReplicas" type="number" min="0" value="1" />
+          </label>
+          <button id="btnManualScale" class="danger">Set Replicas</button>
+        </div>
+
+        <div id="controlMsg" class="msg dim"></div>
+      </section>
+
+      <section class="panel">
+        <h3>Replica Status</h3>
+        <div id="replicaRows" class="replica-list"></div>
+      </section>
+
+      <section class="panel">
+        <h3>Operator Access</h3>
+        <div class="kv"><span class="dim">Control Authorization</span><strong id="authState">Disabled</strong></div>
+        <div class="ctrl-grid">
+          <label>Operator
+            <input id="operatorName" placeholder="researcher" />
+          </label>
+          <label>Control token
+            <input id="controlToken" type="password" placeholder="optional" />
+          </label>
+        </div>
+        <div class="msg dim">Control actions send the optional operator identity and token headers to the aggregator.</div>
+      </section>
+
+      <section class="panel">
+        <h3>Alerts</h3>
+        <div id="alertsEmpty" class="dim">No active alerts.</div>
+        <div id="alertsRows" class="alert-list" style="display:none"></div>
+      </section>
+
+      <section class="panel panel-wide" id="support">
+        <h3>Support Desk</h3>
+        <div class="ctrl-grid">
+          <label>Title
+            <input id="ticketTitle" placeholder="Issue title" />
+          </label>
+          <label>Assign to
+            <input id="ticketAssignedTo" placeholder="support engineer" />
+          </label>
+          <label class="full">Description
+            <textarea id="ticketDescription" placeholder="Describe the runtime issue or anomaly."></textarea>
+          </label>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <button id="btnTicketCreate">Create Ticket</button>
+          <button id="btnTicketRefresh" class="warn">Refresh Tickets</button>
+        </div>
+
+        <hr style="border:none; border-top:1px solid #e1e8d9; margin:10px 0">
+
+        <div class="ctrl-grid">
+          <label>Ticket
+            <select id="ticketId"></select>
+          </label>
+          <label>Status
+            <select id="ticketStatus">
+              <option value="open">open</option>
+              <option value="in_progress">in_progress</option>
+              <option value="resolved">resolved</option>
+              <option value="closed">closed</option>
+            </select>
+          </label>
+          <label>Assign to
+            <input id="ticketUpdateAssignedTo" placeholder="support engineer" />
+          </label>
+          <label class="full">Response
+            <textarea id="ticketResponse" placeholder="Support response or operator note."></textarea>
+          </label>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <button id="btnTicketUpdate">Update Ticket</button>
+        </div>
+        <div id="ticketMsg" class="msg dim"></div>
+
+        <div style="margin-top:10px">
+          <div id="ticketsEmpty" class="dim">No support tickets yet.</div>
+          <div id="ticketRows" class="ticket-list" style="display:none"></div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Decision Trace Log</h3>
+        <div class="trace-wrap">
+          <table class="trace-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Node</th>
+                <th>P90(S)</th>
+                <th>P90(L)</th>
+                <th>Ex(S)</th>
+                <th>Ex(L)</th>
+                <th>RunQ</th>
+                <th>RunQ Thr</th>
+                <th>λ(S)</th>
+                <th>λ(L)</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="traceRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Audit Log</h3>
+        <div class="trace-wrap">
+          <table class="trace-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Actor</th>
+                <th>Kind</th>
+                <th>Outcome</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="auditRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    const GRAPH_URL = "/api/graph";
+    const TRACE_URL = "/api/traces";
+    const CONTROL_STATE_URL = "/api/control/state";
+    const CONTROL_TRAFFIC_START_URL = "/api/control/traffic/start";
+    const CONTROL_TRAFFIC_STOP_URL = "/api/control/traffic/stop";
+    const CONTROL_SLO_UPDATE_URL = "/api/control/slo/update";
+    const CONTROL_SCALE_URL = "/api/control/scale";
+    const CONTROL_SCALE_DOWN_URL = "/api/control/scale/down";
+    const AUDIT_URL = "/api/audit";
+    const SUPPORT_TICKETS_URL = "/api/support/tickets";
+    const RUNQ_FALLBACK_THRESHOLD_MS = 25;
+    let selectedNodeId = null;
+    let lastTopologySignature = "";
+    let controlState = { routes: [], trafficRoutes: [], trafficBaseUrl: "", benchmark: {}, slos: {}, deployments: [] };
+    let latestGraphData = { metrics: {}, topology: {}, topology_meta: {} };
+    let latestTickets = [];
+
+    const cy = cytoscape({
+      container: document.getElementById("cy"),
+      elements: [],
+      style: [
+        {
+          selector: "node",
+          style: {
+            "shape": "round-rectangle",
+            "width": 195,
+            "height": 112,
+            "background-color": "#7d8a72",
+            "border-width": 2,
+            "border-color": "#2e352a",
+            "label": "data(label)",
+            "font-size": 10,
+            "font-weight": "700",
+            "text-wrap": "wrap",
+            "text-max-width": 185,
+            "text-valign": "center",
+            "text-halign": "center",
+            "color": "#fff"
+          }
+        },
+        {
+          selector: "edge",
+          style: {
+            "curve-style": "bezier",
+            "target-arrow-shape": "triangle",
+            "line-color": "#66735f",
+            "target-arrow-color": "#66735f",
+            "width": 2
+          }
+        },
+        { selector: ".healthy-node", style: { "background-color": "#2f8f4e", "border-color": "#1b572f" } },
+        { selector: ".violating-node", style: { "background-color": "#c73a2e", "border-color": "#751d16" } },
+        { selector: ".inactive-node", style: { "background-color": "#81878f", "border-color": "#4c5259" } },
+        { selector: ".focused", style: { "border-width": 4, "border-color": "#111" } }
+      ],
+      layout: { name: "cose", animate: false, fit: true, padding: 28 }
+    });
+
+    function preferredP90(metric) {
+      const truthP90 = Number(metric.truth_p90_latency_ms || 0);
+      const truthFresh = Boolean(metric.truth_fresh);
+      const truthCount = Number(metric.truth_req_count || 0);
+      if (truthFresh && truthCount > 0) return truthP90;
+      return Number(metric.p90_latency || metric.latency || truthP90 || 0);
+    }
+
+    function classify(metric) {
+      const p90 = preferredP90(metric);
+      const runq = Number(metric.avg_runq_latency || 0);
+      let runqThreshold = Number(metric.runq_dynamic_threshold || 0);
+      if (!(runqThreshold > 0)) runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
+      const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
+      const dependencyDelay = Number(metric.dependency_attributed_latency || 0);
+      const externalWait = Number(metric.external_wait_latency || 0);
+      const slo = Number(metric.slo_latency || 0);
+      const rps = Number(metric.rps || 0);
+      const inactive = rps <= 0 && Number(metric.count || 0) <= 0;
+      const violating = !inactive && slo > 0 && p90 > slo;
+      let actionTag = "NO ACTION";
+      if (violating && serviceHandling >= slo && runq >= runqThreshold) actionTag = "CPU STARVED";
+      else if (violating && dependencyDelay + externalWait >= serviceHandling) actionTag = "DEPENDENCY WAIT";
+      return { p90, runq, runqThreshold, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
+    }
+
+    function nodeLabelLegacy(id, s) {
+      return `${id}\nP90:${s.p90.toFixed(1)}ms | RunQ:${s.runq.toFixed(1)} / Thr:${s.runqThreshold.toFixed(1)}\nEx:${s.ex.toFixed(1)}ms | λS:${s.rps.toFixed(2)} λL:${s.rpsLong.toFixed(2)}\n${s.actionTag}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function badgeClass(level) {
+      if (level === "critical") return "badge badge-critical";
+      if (level === "warning") return "badge badge-warning";
+      return "badge badge-info";
+    }
+
+    function setTicketMsg(msg, isError = false) {
+      const el = document.getElementById("ticketMsg");
+      el.textContent = msg;
+      el.className = `msg ${isError ? "violating" : "healthy"}`;
+    }
+
+    function controlHeaders(json = true) {
+      const headers = {};
+      if (json) headers["Content-Type"] = "application/json";
+      const operator = document.getElementById("operatorName").value.trim();
+      const token = document.getElementById("controlToken").value.trim();
+      if (operator) headers["X-Operator"] = operator;
+      if (token) headers["X-Control-Token"] = token;
+      return headers;
+    }
+
+    function persistControlPrefs() {
+      try {
+        localStorage.setItem("thrive-operator", document.getElementById("operatorName").value);
+        localStorage.setItem("thrive-token", document.getElementById("controlToken").value);
+      } catch (_err) {
+      }
+    }
+
+    function loadControlPrefs() {
+      try {
+        document.getElementById("operatorName").value = localStorage.getItem("thrive-operator") || "";
+        document.getElementById("controlToken").value = localStorage.getItem("thrive-token") || "";
+      } catch (_err) {
+      }
+    }
+
+    function updateAuthState() {
+      const authEl = document.getElementById("authState");
+      const enabled = Boolean(controlState.controlAuthEnabled);
+      authEl.textContent = enabled ? "Enabled" : "Disabled";
+      authEl.className = enabled ? "blocked" : "healthy";
+    }
+
+    function deploymentMap() {
+      const out = {};
+      for (const row of (controlState.deployments || [])) {
+        if (row && row.name) out[row.name] = row;
+      }
+      return out;
+    }
+
+    function selectedRouteConfig() {
+      const selected = document.getElementById("cRoute").value;
+      const routes = controlState.trafficRoutes || [];
+      return routes.find((row) => row.name === selected) || null;
+    }
+
+    function fillRouteSelect(routes, preferred = "") {
+      const select = document.getElementById("cRoute");
+      select.innerHTML = "";
+      const rows = Array.isArray(routes) ? routes : [];
+      for (const row of rows) {
+        const option = document.createElement("option");
+        option.value = row.name || row.path || "";
+        const pathText = row.path || "/";
+        option.textContent = `${row.label || row.name || pathText} (${pathText})`;
+        select.appendChild(option);
+      }
+      if (preferred && rows.some((row) => row.name === preferred)) {
+        select.value = preferred;
+      } else if (rows.length) {
+        select.value = rows[0].name || rows[0].path || "";
+      }
+    }
+
+    function updateTrafficBaseSuggestion(baseUrl) {
+      const input = document.getElementById("cBase");
+      const suggested = String(baseUrl || "");
+      const previousSuggested = input.dataset.suggestedBase || "";
+      const current = input.value.trim();
+      const defaultLegacy = "http://gateway";
+      if (!current || current === previousSuggested || current === defaultLegacy || input.dataset.userEdited !== "true") {
+        input.value = suggested;
+      }
+      input.dataset.suggestedBase = suggested;
+    }
+
+    function renderDeploymentContext() {
+      const benchmark = controlState.benchmark || {};
+      const trafficRoutes = controlState.trafficRoutes || [];
+      const trafficBaseUrl = controlState.trafficBaseUrl || benchmark.trafficBaseUrl || "";
+      document.getElementById("sSystem").textContent = `System: ${benchmark.name || "Unknown"}`;
+      document.getElementById("sNamespace").textContent = `Namespace: ${controlState.namespace || "--"}`;
+      document.getElementById("sBase").textContent = `Base: ${trafficBaseUrl || "--"}`;
+      document.getElementById("ctxSystem").textContent = benchmark.name || "Unknown";
+      document.getElementById("ctxNamespace").textContent = controlState.namespace || "--";
+      document.getElementById("ctxEntry").textContent = benchmark.entryService || "--";
+      document.getElementById("ctxBase").textContent = trafficBaseUrl || "--";
+      document.getElementById("ctxNote").textContent = benchmark.note || "Review the route list below before starting traffic.";
+
+      const wrap = document.getElementById("routeRows");
+      wrap.innerHTML = "";
+      for (const route of trafficRoutes) {
+        const card = document.createElement("div");
+        card.className = "route-card";
+        card.innerHTML = `
+          <strong>${escapeHtml(route.label || route.name || route.path || "/")}</strong>
+          <div class="mini">Path: <span class="route-path">${escapeHtml(route.path || "/")}</span></div>
+          <div class="mini">Targets: ${escapeHtml(route.targetDeployment || benchmark.entryService || "front-end")}</div>
+        `;
+        wrap.appendChild(card);
+      }
+
+      updateTrafficBaseSuggestion(trafficBaseUrl);
+    }
+
+    function renderReplicaStatus() {
+      const wrap = document.getElementById("replicaRows");
+      wrap.innerHTML = "";
+      const rows = (controlState.deployments || [])
+        .filter((row) => row && row.slo)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "dim";
+        empty.textContent = "No autoscaled deployments discovered yet.";
+        wrap.appendChild(empty);
+        return;
+      }
+
+      for (const row of rows) {
+        const current = Number(row.spec_replicas || 0);
+        const ready = Number(row.status_replicas || 0);
+        const min = Number((row.slo || {}).minReplicas || 0);
+        const max = Number((row.slo || {}).maxReplicas || 0);
+        const scaled = current > Math.max(1, min);
+        const card = document.createElement("div");
+        card.className = "replica-card";
+        card.innerHTML = `
+          <div><strong>${escapeHtml(row.name || "-")}</strong></div>
+          <div class="replica-meta">
+            <span class="${scaled ? "replica-hot" : ""}">Replicas: ${escapeHtml(String(current))}</span>
+            <span>Ready: ${escapeHtml(String(ready))}</span>
+            <span>Bounds: ${escapeHtml(`${min}..${max}`)}</span>
+            <span>SLO: ${escapeHtml(String(Number((row.slo || {}).sloLatency || 0)))} ms</span>
+          </div>
+        `;
+        wrap.appendChild(card);
+      }
+    }
+
+    function nodeLabel(id, s) {
+      const sloText = s.slo > 0 ? s.slo.toFixed(1) : "-";
+      return `${id}\nP90:${s.p90.toFixed(1)}ms / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\n${s.actionTag}`;
+    }
+
+    function updateNodePanel(id, metric, s) {
+      const dep = deploymentMap()[id] || {};
+      document.getElementById("nodeEmpty").style.display = "none";
+      document.getElementById("nodeData").style.display = "block";
+      document.getElementById("nName").textContent = id;
+      document.getElementById("nReplicas").textContent = dep.name ? `${Number(dep.status_replicas || 0)} ready / ${Number(dep.spec_replicas || 0)} target` : "N/A";
+      document.getElementById("nReplicaBounds").textContent = dep.slo ? `${Number(dep.slo.minReplicas || 0)} .. ${Number(dep.slo.maxReplicas || 0)}` : "N/A";
+      document.getElementById("nP90").textContent = s.p90.toFixed(3);
+      document.getElementById("nRunq").textContent = `${s.runq.toFixed(3)} / ${s.runqThreshold.toFixed(3)}`;
+      document.getElementById("nHandle").textContent = s.serviceHandling.toFixed(3);
+      document.getElementById("nDep").textContent = s.dependencyDelay.toFixed(3);
+      document.getElementById("nExternal").textContent = s.externalWait.toFixed(3);
+      document.getElementById("nRps").textContent = s.rps.toFixed(3);
+      document.getElementById("nSlo").textContent = s.slo > 0 ? s.slo.toFixed(2) : "N/A";
+
+      const health = document.getElementById("nHealth");
+      if (s.inactive) {
+        health.textContent = "INACTIVE";
+        health.className = "idle";
+      } else if (s.violating) {
+        health.textContent = "SLO VIOLATION";
+        health.className = "violating";
+      } else {
+        health.textContent = "HEALTHY";
+        health.className = "healthy";
+      }
+
+      const tag = document.getElementById("nTag");
+      tag.textContent = s.actionTag;
+      tag.className = s.actionTag === "CPU STARVED" ? "starved" : (s.actionTag === "DEPENDENCY WAIT" ? "blocked" : "healthy");
+    }
+
+    function renderGraph(data) {
+      const metrics = data.metrics || {};
+      const topology = data.topology || {};
+      let healthy = 0, violating = 0, inactive = 0;
+      const nodeIdsInPayload = new Set(Object.keys(metrics));
+      const edgeIdsInPayload = new Set();
+
+      // Upsert nodes and update styles/data.
+      for (const [svc, metric] of Object.entries(metrics)) {
+        const s = classify(metric);
+        if (s.inactive) inactive++;
+        else if (s.violating) violating++;
+        else healthy++;
+
+        let classes = "healthy-node";
+        if (s.inactive) classes = "inactive-node";
+        else if (s.violating) classes = "violating-node";
+
+        let node = cy.$id(svc);
+        if (node.length === 0) {
+          cy.add({ data: { id: svc } });
+          node = cy.$id(svc);
+        }
+        node.data({
+          id: svc,
+          label: nodeLabel(svc, s),
+          metric,
+          status: s
+        });
+        node.removeClass("healthy-node violating-node inactive-node").addClass(classes);
+      }
+
+      // Upsert edges.
+      for (const [src, dsts] of Object.entries(topology)) {
+        for (const dst of dsts) {
+          if (metrics[src] && metrics[dst]) {
+            const edgeId = `${src}->${dst}`;
+            edgeIdsInPayload.add(edgeId);
+            if (cy.$id(edgeId).length === 0) {
+              cy.add({ data: { id: edgeId, source: src, target: dst } });
+            }
+          }
+        }
+      }
+
+      // Remove stale edges then stale nodes.
+      cy.edges().forEach((e) => {
+        if (!edgeIdsInPayload.has(e.id())) e.remove();
+      });
+      cy.nodes().forEach((n) => {
+        if (!nodeIdsInPayload.has(n.id())) {
+          if (selectedNodeId === n.id()) {
+            selectedNodeId = null;
+            document.getElementById("nodeEmpty").style.display = "block";
+            document.getElementById("nodeData").style.display = "none";
+          }
+          n.remove();
+        }
+      });
+
+      // Layout only when topology changed.
+      const topoPairs = [];
+      Object.entries(topology).forEach(([src, dsts]) => {
+        dsts.forEach((dst) => {
+          if (metrics[src] && metrics[dst]) topoPairs.push(`${src}->${dst}`);
+        });
+      });
+      topoPairs.sort();
+      const signature = `${[...nodeIdsInPayload].sort().join(",")}::${topoPairs.join(",")}`;
+      if (signature !== lastTopologySignature) {
+        lastTopologySignature = signature;
+        cy.layout({ name: "cose", animate: false, fit: true, padding: 28 }).run();
+      }
+
+      if (selectedNodeId && cy.$id(selectedNodeId).length) {
+        cy.nodes().removeClass("focused");
+        const n = cy.$id(selectedNodeId);
+        n.addClass("focused");
+        updateNodePanel(selectedNodeId, n.data("metric"), n.data("status"));
+      }
+
+      document.getElementById("sHealthy").textContent = `Healthy: ${healthy}`;
+      document.getElementById("sViolating").textContent = `Violating: ${violating}`;
+      document.getElementById("sIdle").textContent = `Inactive: ${inactive}`;
+      document.getElementById("sUpdated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+    }
+
+    function renderTraces(data) {
+      const rows = (data.traces || []).slice(0, 100);
+      const tbody = document.getElementById("traceRows");
+      tbody.innerHTML = "";
+      for (const t of rows) {
+        const ts = t.ts_unix_ms ? new Date(t.ts_unix_ms).toLocaleTimeString() : "--";
+        const p90s = Number(t.p90_ms || 0);
+        const p90l = Number(t.p90_long_ms || 0);
+        const exs = Number(t.exclusive_delay_ms || 0);
+        const exl = Number(t.exclusive_delay_long_ms || 0);
+        const runq = Number(t.runq_ms || 0);
+        const runqThr = Number(t.runq_threshold_ms || 0);
+        const rpss = Number(t.rps || 0);
+        const rpsl = Number(t.rps_long || 0);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${ts}</td>
+          <td>${t.node || "-"}</td>
+          <td>${p90s.toFixed(2)}</td>
+          <td>${p90l.toFixed(2)}</td>
+          <td>${exs.toFixed(2)}</td>
+          <td>${exl.toFixed(2)}</td>
+          <td>${runq.toFixed(2)}</td>
+          <td>${runqThr.toFixed(2)}</td>
+          <td>${rpss.toFixed(2)}</td>
+          <td>${rpsl.toFixed(2)}</td>
+          <td>${t.action || "-"}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function buildAlerts(data) {
+      const alerts = [];
+      const metrics = data.metrics || {};
+      for (const [svc, metric] of Object.entries(metrics)) {
+        const s = classify(metric);
+        const active = Boolean(metric.active_short || metric.evaluable_for_slo || !s.inactive);
+        const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
+        const depLatency = Number(metric.dependency_attributed_latency || 0) + Number(metric.external_wait_latency || 0);
+        const totalLatency = Math.max(s.p90, serviceHandling + depLatency, 0.001);
+        const localShare = serviceHandling / totalLatency;
+        const depShare = depLatency / totalLatency;
+        const latencyFresh = Boolean(metric.latency_fresh);
+        const runqFresh = Boolean(metric.runq_fresh);
+        const topologyFresh = Boolean(metric.topology_fresh);
+        const truthFresh = Boolean(metric.truth_fresh);
+
+        if (active && s.violating) {
+          alerts.push({
+            level: "critical",
+            service: svc,
+            title: `SLO violation on ${svc}`,
+            detail: `P90 ${s.p90.toFixed(2)}ms vs SLO ${s.slo.toFixed(2)}ms under ${s.rps.toFixed(2)} rps.`,
+          });
+        }
+        if (active && !latencyFresh) {
+          alerts.push({
+            level: "warning",
+            service: svc,
+            title: `Latency evidence stale for ${svc}`,
+            detail: "Fresh latency observations are missing, so scaling confidence is reduced.",
+          });
+        }
+        if (active && !runqFresh) {
+          alerts.push({
+            level: "info",
+            service: svc,
+            title: `Run queue evidence stale for ${svc}`,
+            detail: "Kernel run queue samples are not fresh right now.",
+          });
+        }
+        if (active && !topologyFresh && depShare > 0) {
+          alerts.push({
+            level: "warning",
+            service: svc,
+            title: `Dependency topology stale for ${svc}`,
+            detail: "Recent dependency edges are stale, so downstream attribution may be weaker.",
+          });
+        }
+        if (active && !truthFresh && metric.truth_req_count_long > 0) {
+          alerts.push({
+            level: "info",
+            service: svc,
+            title: `Gateway truth stale for ${svc}`,
+            detail: "Recent request-level QoS truth has aged out for this service.",
+          });
+        }
+        if (active && Number(metric.truth_5xx_rate || 0) > 0) {
+          alerts.push({
+            level: "critical",
+            service: svc,
+            title: `5xx responses on ${svc}`,
+            detail: `Observed 5xx rate ${(Number(metric.truth_5xx_rate || 0) * 100).toFixed(1)}%.`,
+          });
+        }
+        if (active && Number(metric.truth_timeout_rate || 0) > 0) {
+          alerts.push({
+            level: "critical",
+            service: svc,
+            title: `Timeouts on ${svc}`,
+            detail: `Observed timeout rate ${(Number(metric.truth_timeout_rate || 0) * 100).toFixed(1)}%.`,
+          });
+        }
+        if (active && Number(metric.truth_connect_refused_rate || 0) > 0) {
+          alerts.push({
+            level: "critical",
+            service: svc,
+            title: `Connection refusals on ${svc}`,
+            detail: `Observed connect-refused rate ${(Number(metric.truth_connect_refused_rate || 0) * 100).toFixed(1)}%.`,
+          });
+        }
+        if (active && s.violating && depShare > localShare) {
+          alerts.push({
+            level: "warning",
+            service: svc,
+            title: `Dependency-driven latency at ${svc}`,
+            detail: `Most latency appears downstream (${(depShare * 100).toFixed(0)}% dependency share).`,
+          });
+        }
+      }
+      const priority = { critical: 0, warning: 1, info: 2 };
+      alerts.sort((a, b) => (priority[a.level] ?? 9) - (priority[b.level] ?? 9) || a.service.localeCompare(b.service));
+      return alerts.slice(0, 24);
+    }
+
+    function renderAlerts(data) {
+      const rows = buildAlerts(data);
+      const empty = document.getElementById("alertsEmpty");
+      const wrap = document.getElementById("alertsRows");
+      wrap.innerHTML = "";
+      if (!rows.length) {
+        empty.style.display = "block";
+        wrap.style.display = "none";
+        return;
+      }
+      empty.style.display = "none";
+      wrap.style.display = "flex";
+      for (const row of rows) {
+        const el = document.createElement("div");
+        el.className = "alert-row";
+        el.innerHTML = `
+          <span class="${badgeClass(row.level)}">${escapeHtml(row.level)}</span>
+          <div class="stack">
+            <strong>${escapeHtml(row.title)}</strong>
+            <span>${escapeHtml(row.detail)}</span>
+          </div>
+        `;
+        wrap.appendChild(el);
+      }
+    }
+
+    function renderAudit(data) {
+      const tbody = document.getElementById("auditRows");
+      tbody.innerHTML = "";
+      for (const event of (data.events || []).slice(0, 120)) {
+        const tr = document.createElement("tr");
+        const ts = event.ts_unix_ms ? new Date(event.ts_unix_ms).toLocaleTimeString() : "--";
+        tr.innerHTML = `
+          <td>${escapeHtml(ts)}</td>
+          <td>${escapeHtml(event.actor || "-")}</td>
+          <td>${escapeHtml(event.kind || "-")}</td>
+          <td>${escapeHtml(event.outcome || "-")}</td>
+          <td class="mini">${escapeHtml(JSON.stringify(event.details || {}))}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function fillTicketForm(ticket) {
+      if (!ticket) return;
+      document.getElementById("ticketId").value = ticket.id || "";
+      document.getElementById("ticketStatus").value = ticket.status || "open";
+      document.getElementById("ticketUpdateAssignedTo").value = ticket.assigned_to || "";
+      document.getElementById("ticketResponse").value = ticket.response || "";
+    }
+
+    function renderTickets(data) {
+      latestTickets = data.tickets || [];
+      const empty = document.getElementById("ticketsEmpty");
+      const wrap = document.getElementById("ticketRows");
+      const ticketSelect = document.getElementById("ticketId");
+      fillSelect(ticketSelect, latestTickets.map((ticket) => ticket.id), ticketSelect.value);
+      wrap.innerHTML = "";
+      if (!latestTickets.length) {
+        empty.style.display = "block";
+        wrap.style.display = "none";
+        fillTicketForm({ id: "", status: "open", assigned_to: "", response: "" });
+        return;
+      }
+      empty.style.display = "none";
+      wrap.style.display = "flex";
+      for (const ticket of latestTickets) {
+        const card = document.createElement("div");
+        card.className = "ticket-card";
+        card.innerHTML = `
+          <div><strong>${escapeHtml(ticket.id || "")}</strong> - ${escapeHtml(ticket.title || "")}</div>
+          <div class="mini" style="margin-top:4px">${escapeHtml(ticket.description || "")}</div>
+          <div class="ticket-meta">
+            <span>Status: ${escapeHtml(ticket.status || "open")}</span>
+            <span>Owner: ${escapeHtml(ticket.assigned_to || "-")}</span>
+            <span>By: ${escapeHtml(ticket.created_by || "-")}</span>
+          </div>
+          <div class="mini" style="margin-top:5px">Updated: ${escapeHtml(ticket.updated_at || ticket.created_at || "-")}</div>
+          <div class="mini" style="margin-top:4px">Response: ${escapeHtml(ticket.response || "-")}</div>
+        `;
+        card.addEventListener("click", () => fillTicketForm(ticket));
+        wrap.appendChild(card);
+      }
+      fillTicketForm(latestTickets.find((ticket) => ticket.id === ticketSelect.value) || latestTickets[0]);
+    }
+
+    function setControlMsg(msg, isError = false) {
+      const el = document.getElementById("controlMsg");
+      el.textContent = msg;
+      el.className = `msg ${isError ? "violating" : "healthy"}`;
+    }
+
+    function fillSelect(select, values, preferred = "") {
+      const seen = new Set();
+      const opts = [];
+      for (const v of values) {
+        if (!v || seen.has(v)) continue;
+        seen.add(v);
+        opts.push(v);
+      }
+      opts.sort();
+      select.innerHTML = "";
+      for (const v of opts) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = v;
+        select.appendChild(o);
+      }
+      if (preferred && opts.includes(preferred)) select.value = preferred;
+    }
+
+    function syncSloFormFromSelection() {
+      const dep = document.getElementById("sloDeployment").value;
+      const cfg = controlState.slos[dep];
+      if (!cfg) return;
+      document.getElementById("sloLatency").value = Number(cfg.sloLatency || 0);
+      document.getElementById("sloMin").value = Number(cfg.minReplicas || 1);
+      document.getElementById("sloMax").value = Number(cfg.maxReplicas || 1);
+      document.getElementById("manualReplicas").value = Number(cfg.minReplicas || 1);
+    }
+
+    async function fetchControlState() {
+      try {
+        const resp = await fetch(CONTROL_STATE_URL, { cache: "no-store" });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        controlState = data || controlState;
+
+        fillRouteSelect(data.trafficRoutes || [], document.getElementById("cRoute").value);
+
+        const depSel = document.getElementById("sloDeployment");
+        fillSelect(depSel, Object.keys(data.slos || {}), depSel.value);
+        syncSloFormFromSelection();
+        renderDeploymentContext();
+        renderReplicaStatus();
+        updateAuthState();
+      } catch (_err) {
+      }
+    }
+
+    async function postJson(url, payload) {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: controlHeaders(true),
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      return data;
+    }
+
+    async function patchJson(url, payload) {
+      const resp = await fetch(url, {
+        method: "PATCH",
+        headers: controlHeaders(true),
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      return data;
+    }
+
+    function graphUrl() {
+      const showInfra = document.getElementById("toggleInfra").checked;
+      return showInfra ? `${GRAPH_URL}?include_infra=1` : GRAPH_URL;
+    }
+
+    async function refreshAudit() {
+      try {
+        const resp = await fetch(AUDIT_URL, { cache: "no-store" });
+        if (resp.ok) renderAudit(await resp.json());
+      } catch (_err) {
+      }
+    }
+
+    async function refreshTickets() {
+      try {
+        const resp = await fetch(SUPPORT_TICKETS_URL, { cache: "no-store" });
+        if (resp.ok) renderTickets(await resp.json());
+      } catch (_err) {
+      }
+    }
+
+    async function poll() {
+      try {
+        const [graphRes, traceRes] = await Promise.all([
+          fetch(graphUrl(), { cache: "no-store" }),
+          fetch(TRACE_URL, { cache: "no-store" })
+        ]);
+        if (graphRes.ok) {
+          latestGraphData = await graphRes.json();
+          renderGraph(latestGraphData);
+          renderAlerts(latestGraphData);
+        }
+        if (traceRes.ok) renderTraces(await traceRes.json());
+      } catch (err) {
+        console.error("poll error", err);
+      }
+    }
+
+    cy.on("tap", "node", (evt) => {
+      selectedNodeId = evt.target.id();
+      cy.nodes().removeClass("focused");
+      evt.target.addClass("focused");
+      updateNodePanel(selectedNodeId, evt.target.data("metric"), evt.target.data("status"));
+    });
+
+    cy.on("tap", (evt) => {
+      if (evt.target === cy) {
+        selectedNodeId = null;
+        cy.nodes().removeClass("focused");
+        document.getElementById("nodeEmpty").style.display = "block";
+        document.getElementById("nodeData").style.display = "none";
+      }
+    });
+
+    loadControlPrefs();
+    poll();
+    setInterval(poll, 2000);
+    fetchControlState();
+    setInterval(fetchControlState, 10000);
+    refreshAudit();
+    setInterval(refreshAudit, 6000);
+    refreshTickets();
+    setInterval(refreshTickets, 10000);
+    document.getElementById("toggleInfra").addEventListener("change", poll);
+    document.getElementById("sloDeployment").addEventListener("change", syncSloFormFromSelection);
+    document.getElementById("ticketId").addEventListener("change", () => {
+      fillTicketForm(latestTickets.find((ticket) => ticket.id === document.getElementById("ticketId").value));
+    });
+    document.getElementById("operatorName").addEventListener("input", persistControlPrefs);
+    document.getElementById("controlToken").addEventListener("input", persistControlPrefs);
+    document.getElementById("cBase").addEventListener("input", () => {
+      document.getElementById("cBase").dataset.userEdited = "true";
+    });
+
+    document.getElementById("btnTrafficStart").addEventListener("click", async () => {
+      const routeCfg = selectedRouteConfig();
+      const route = (routeCfg && routeCfg.name) || document.getElementById("cRoute").value;
+      const path = (routeCfg && routeCfg.path) || `/${route}`;
+      const requests = Number(document.getElementById("cReq").value || 0);
+      const concurrency = Number(document.getElementById("cConc").value || 0);
+      const base_url = document.getElementById("cBase").value.trim();
+      try {
+        const data = await postJson(CONTROL_TRAFFIC_START_URL, { route, path, requests, concurrency, base_url });
+        setControlMsg(`Traffic job started: ${data.job} -> ${data.target_url}`);
+      } catch (err) {
+        setControlMsg(`Traffic start failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnTrafficStop").addEventListener("click", async () => {
+      try {
+        const data = await postJson(CONTROL_TRAFFIC_STOP_URL, { all: true });
+        setControlMsg(`Stopped jobs: ${data.deleted ? data.deleted.length : 0}`);
+      } catch (err) {
+        setControlMsg(`Stop traffic failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnSloUpdate").addEventListener("click", async () => {
+      const targetDeployment = document.getElementById("sloDeployment").value;
+      const sloLatency = Number(document.getElementById("sloLatency").value || 0);
+      const minReplicas = Number(document.getElementById("sloMin").value || 1);
+      const maxReplicas = Number(document.getElementById("sloMax").value || 1);
+      try {
+        await postJson(CONTROL_SLO_UPDATE_URL, { targetDeployment, sloLatency, minReplicas, maxReplicas });
+        setControlMsg(`Updated SLO for ${targetDeployment}`);
+        fetchControlState();
+      } catch (err) {
+        setControlMsg(`SLO update failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnScaleDownMin").addEventListener("click", async () => {
+      const deployment = document.getElementById("sloDeployment").value;
+      try {
+        const data = await postJson(CONTROL_SCALE_DOWN_URL, { deployment, mode: "min" });
+        setControlMsg(`Scaled ${deployment}: ${data.current} -> ${data.target}`);
+      } catch (err) {
+        setControlMsg(`Scale-down failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnManualScale").addEventListener("click", async () => {
+      const deployment = document.getElementById("sloDeployment").value;
+      const replicas = Number(document.getElementById("manualReplicas").value || 0);
+      try {
+        await postJson(CONTROL_SCALE_URL, { deployment, replicas });
+        setControlMsg(`Set ${deployment} replicas -> ${replicas}`);
+      } catch (err) {
+        setControlMsg(`Manual scale failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnTicketCreate").addEventListener("click", async () => {
+      const title = document.getElementById("ticketTitle").value.trim();
+      const description = document.getElementById("ticketDescription").value.trim();
+      const assignedTo = document.getElementById("ticketAssignedTo").value.trim();
+      try {
+        const data = await postJson(SUPPORT_TICKETS_URL, { title, description, assignedTo });
+        setTicketMsg(`Created support ticket ${data.ticket.id}`);
+        document.getElementById("ticketTitle").value = "";
+        document.getElementById("ticketDescription").value = "";
+        document.getElementById("ticketAssignedTo").value = "";
+        await refreshTickets();
+        await refreshAudit();
+      } catch (err) {
+        setTicketMsg(`Ticket creation failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnTicketRefresh").addEventListener("click", async () => {
+      await refreshTickets();
+      setTicketMsg("Support tickets refreshed.");
+    });
+
+    document.getElementById("btnTicketUpdate").addEventListener("click", async () => {
+      const ticketId = document.getElementById("ticketId").value;
+      const status = document.getElementById("ticketStatus").value;
+      const assignedTo = document.getElementById("ticketUpdateAssignedTo").value.trim();
+      const response = document.getElementById("ticketResponse").value.trim();
+      try {
+        const data = await patchJson(`${SUPPORT_TICKETS_URL}/${encodeURIComponent(ticketId)}`, {
+          status,
+          assignedTo,
+          response
+        });
+        setTicketMsg(`Updated ${data.ticket.id} -> ${data.ticket.status}`);
+        await refreshTickets();
+        await refreshAudit();
+      } catch (err) {
+        setTicketMsg(`Ticket update failed: ${err.message}`, true);
+      }
+    });
+  </script>
+</body>
+</html>

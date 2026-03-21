@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-03-07T00:00:00Z",
+  "resource_shape": "example",
+  "services": {
+    "front-end": [
+      {"replicas": 1, "max_safe_rps": 35.0, "observed_p90_ms": 120.0, "safe_concurrency_p90": 4.2, "headroom_factor": 1.15},
+      {"replicas": 2, "max_safe_rps": 70.0, "observed_p90_ms": 110.0, "safe_concurrency_p90": 7.7, "headroom_factor": 1.15},
+      {"replicas": 4, "max_safe_rps": 140.0, "observed_p90_ms": 105.0, "safe_concurrency_p90": 14.7, "headroom_factor": 1.15},
+      {"replicas": 8, "max_safe_rps": 280.0, "observed_p90_ms": 95.0, "safe_concurrency_p90": 26.6, "headroom_factor": 1.15}
+    ],
+    "catalogue": [
+      {"replicas": 1, "max_safe_rps": 80.0, "observed_p90_ms": 40.0, "safe_concurrency_p90": 3.2, "headroom_factor": 1.15},
+      {"replicas": 2, "max_safe_rps": 160.0, "observed_p90_ms": 35.0, "safe_concurrency_p90": 5.6, "headroom_factor": 1.15}
+    ],
+    "carts": [
+      {"replicas": 1, "max_safe_rps": 30.0, "observed_p90_ms": 90.0, "safe_concurrency_p90": 2.7, "headroom_factor": 1.15},
+      {"replicas": 2, "max_safe_rps": 60.0, "observed_p90_ms": 80.0, "safe_concurrency_p90": 4.8, "headroom_factor": 1.15},
+      {"replicas": 4, "max_safe_rps": 120.0, "observed_p90_ms": 75.0, "safe_concurrency_p90": 9.0, "headroom_factor": 1.15}
+    ],
+    "orders": [
+      {"replicas": 1, "max_safe_rps": 20.0, "observed_p90_ms": 100.0, "safe_concurrency_p90": 2.0, "headroom_factor": 1.15},
+      {"replicas": 2, "max_safe_rps": 40.0, "observed_p90_ms": 85.0, "safe_concurrency_p90": 3.4, "headroom_factor": 1.15},
+      {"replicas": 4, "max_safe_rps": 80.0, "observed_p90_ms": 70.0, "safe_concurrency_p90": 5.6, "headroom_factor": 1.15}
+    ]
+  }
+}

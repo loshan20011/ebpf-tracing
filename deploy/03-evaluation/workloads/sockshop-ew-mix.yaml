@@ -1,0 +1,65 @@
+phases:
+  - start_s: 0
+    end_s: 30
+    target_rps: 20
+  - start_s: 30
+    end_s: 60
+    target_rps: 120
+  - start_s: 60
+    end_s: 90
+    target_rps: 220
+  - start_s: 90
+    end_s: 120
+    target_rps: 80
+  - start_s: 120
+    end_s: 150
+    target_rps: 260
+  - start_s: 150
+    end_s: 180
+    target_rps: 40
+routes:
+  - name: home
+    group: browse
+    method: GET
+    path: /
+    weight: 20
+  - name: category
+    group: browse
+    method: GET
+    path: /category.html
+    weight: 12
+  - name: catalogue
+    group: browse
+    method: GET
+    path: /catalogue
+    weight: 20
+  - name: product_a
+    group: browse
+    method: GET
+    path: /detail.html?id=3395a43e-2d88-40de-b95f-e00e1502085b
+    weight: 12
+  - name: product_b
+    group: browse
+    method: GET
+    path: /detail.html?id=510a0d7e-8e83-4193-b483-e27e09ddc34d
+    weight: 10
+  - name: cart_view
+    group: cart
+    method: GET
+    path: /cart.html
+    weight: 9
+  - name: basket
+    group: cart
+    method: GET
+    path: /basket.html
+    weight: 7
+  - name: login
+    group: account
+    method: GET
+    path: /login
+    weight: 5
+  - name: customer_orders
+    group: checkout
+    method: GET
+    path: /customer-orders.html
+    weight: 5

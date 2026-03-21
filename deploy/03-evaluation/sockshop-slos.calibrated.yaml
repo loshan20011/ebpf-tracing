@@ -1,0 +1,43 @@
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-front-end-slo
+  namespace: sock-shop
+spec:
+  targetDeployment: front-end
+  sloLatency: 150
+  minReplicas: 1
+  maxReplicas: 30
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-catalogue-slo
+  namespace: sock-shop
+spec:
+  targetDeployment: catalogue
+  sloLatency: 100
+  minReplicas: 1
+  maxReplicas: 30
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-carts-slo
+  namespace: sock-shop
+spec:
+  targetDeployment: carts
+  sloLatency: 100
+  minReplicas: 1
+  maxReplicas: 5
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-orders-slo
+  namespace: sock-shop
+spec:
+  targetDeployment: orders
+  sloLatency: 120
+  minReplicas: 1
+  maxReplicas: 8
