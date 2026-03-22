@@ -71,10 +71,10 @@ spec:
         - containerPort: 8081
         resources:
           requests:
-            cpu: "250m"
+            cpu: "100m"
             memory: "128Mi"
           limits:
-            cpu: "1500m"
+            cpu: "200m"
             memory: "256Mi"
 ---
 apiVersion: v1
@@ -118,7 +118,7 @@ spec:
             cpu: "100m"
             memory: "128Mi"
           limits:
-            cpu: "500m"
+            cpu: "300m"
             memory: "256Mi"
 ---
 apiVersion: v1
@@ -206,7 +206,7 @@ spec:
             cpu: "100m"
             memory: "128Mi"
           limits:
-            cpu: "500m"
+            cpu: "300m"
             memory: "256Mi"
 ---
 apiVersion: v1
@@ -247,10 +247,10 @@ spec:
         - containerPort: 8086
         resources:
           requests:
-            cpu: "150m"
+            cpu: "100m"
             memory: "128Mi"
           limits:
-            cpu: "1000m"
+            cpu: "300m"
             memory: "256Mi"
 ---
 apiVersion: v1
@@ -294,7 +294,7 @@ spec:
             cpu: "150m"
             memory: "128Mi"
           limits:
-            cpu: "1000m"
+            cpu: "400m"
             memory: "256Mi"
 ---
 apiVersion: v1

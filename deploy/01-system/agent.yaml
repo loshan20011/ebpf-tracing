@@ -27,6 +27,10 @@ spec:
           value: "sock-shop"
         - name: RUNQ_MIN_US
           value: "250"
+        - name: CPU_THROTTLE_POLL_SECONDS
+          value: "2.0"
+        - name: CPU_THROTTLE_MIN_RATIO
+          value: "0.01"
         - name: RAW_BUFFER_MAX_EVENTS
           value: "100000"
         - name: MY_POD_NAME

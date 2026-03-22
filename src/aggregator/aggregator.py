@@ -278,23 +278,28 @@ def refresh_ip_map():
     try:
         new_map = {}
 
-        pods = v1.list_namespaced_pod(TARGET_NAMESPACE)
-        for pod in pods.items:
-            if not pod.status.pod_ip:
-                continue
-            app_label = (pod.metadata.labels.get("app") or pod.metadata.labels.get("name")) if pod.metadata and pod.metadata.labels else None
-            if not app_label and pod.metadata and pod.metadata.name:
-                app_label = pod.metadata.name
-            if app_label:
-                new_map[pod.status.pod_ip] = app_label
+        namespaces = {TARGET_NAMESPACE}
+        if AGENT_NAMESPACE:
+            namespaces.add(AGENT_NAMESPACE)
 
-        services = v1.list_namespaced_service(TARGET_NAMESPACE)
-        for svc in services.items:
-            if not svc.spec.cluster_ip or svc.spec.cluster_ip == "None":
-                continue
-            app_label = (svc.metadata.labels.get("app") or svc.metadata.labels.get("name")) if svc.metadata and svc.metadata.labels else svc.metadata.name
-            if app_label:
-                new_map[svc.spec.cluster_ip] = app_label
+        for namespace in namespaces:
+            pods = v1.list_namespaced_pod(namespace)
+            for pod in pods.items:
+                if not pod.status.pod_ip:
+                    continue
+                app_label = (pod.metadata.labels.get("app") or pod.metadata.labels.get("name")) if pod.metadata and pod.metadata.labels else None
+                if not app_label and pod.metadata and pod.metadata.name:
+                    app_label = pod.metadata.name
+                if app_label:
+                    new_map[pod.status.pod_ip] = app_label
+
+            services = v1.list_namespaced_service(namespace)
+            for svc in services.items:
+                if not svc.spec.cluster_ip or svc.spec.cluster_ip == "None":
+                    continue
+                app_label = (svc.metadata.labels.get("app") or svc.metadata.labels.get("name")) if svc.metadata and svc.metadata.labels else svc.metadata.name
+                if app_label:
+                    new_map[svc.spec.cluster_ip] = app_label
 
         with K8S_MAP_LOCK:
             IP_TO_SVC = new_map
@@ -426,7 +431,7 @@ def fetch_from_agents_loop():
                     continue
                 events = data.get("events", [])
                 dropped_total += int(data.get("dropped_events", 0))
-                ingest_events(redis_cli, events, next_seq, ip_to_service)
+                ingest_events(redis_cli, events, next_seq, ip_to_service, INFRA_EXACT, INFRA_PREFIXES)
                 batches += 1
                 ingested += len(events)
 
@@ -507,7 +512,6 @@ def get_graph():
             k8s_services = {str(svc).strip() for svc in IP_TO_SVC.values() if str(svc).strip()}
 
         discovered = set(redis_cli.smembers("services"))
-        discovered.update(truth_store.services())
         discovered.update(slo_map.keys())
         discovered.update(k8s_services)
         all_services = sorted(list(discovered))
@@ -517,10 +521,8 @@ def get_graph():
         cutoff_long_ms = now_ms - int(WINDOW_LONG_SECONDS * 1000)
 
         for svc in all_services:
-            short_truth = truth_store.aggregate_service_metrics(svc, now_ms, now_sec, WINDOW_SHORT_SECONDS)
-            long_truth = truth_store.aggregate_service_metrics(svc, now_ms, now_sec, WINDOW_LONG_SECONDS)
-            short_m = aggregate_service_metrics(redis_cli, svc, cutoff_short_ms, now_sec, WINDOW_SHORT_SECONDS, truth=short_truth)
-            long_m = aggregate_service_metrics(redis_cli, svc, cutoff_long_ms, now_sec, WINDOW_LONG_SECONDS, truth=long_truth)
+            short_m = aggregate_service_metrics(redis_cli, svc, cutoff_short_ms, now_sec, WINDOW_SHORT_SECONDS, truth={})
+            long_m = aggregate_service_metrics(redis_cli, svc, cutoff_long_ms, now_sec, WINDOW_LONG_SECONDS, truth={})
             slo_latency = float(slo_map.get(svc, 0.0))
             runq_baseline, runq_std_dev, runq_healthy_windows, runq_baseline_samples = learn_runq_baseline(
                 redis_cli, svc, short_m, slo_latency, learning_enabled=learning_enabled
@@ -545,24 +547,25 @@ def get_graph():
                 "p90_latency_long": long_m["p90_latency"],
                 "raw_p90_latency_long": long_m.get("raw_p90_latency", 0.0),
                 "avg_runq_latency_long": long_m["avg_runq_latency"],
+                "cpu_throttle_ratio_long": long_m.get("cpu_throttle_ratio", 0.0),
                 "runq_p90_latency": short_m.get("runq_p90_latency", 0.0),
                 "runq_max_latency": short_m.get("runq_max_latency", 0.0),
                 "runq_p90_latency_long": long_m.get("runq_p90_latency", 0.0),
                 "runq_max_latency_long": long_m.get("runq_max_latency", 0.0),
                 "rps_long": long_m["rps"],
                 "count_long": long_m["count"],
-                "truth_rps_long": long_m.get("truth_rps", 0.0),
-                "truth_req_count_long": long_m.get("truth_req_count", 0),
-                "truth_timeout_rate_long": long_m.get("truth_timeout_rate", 0.0),
-                "truth_connect_refused_rate_long": long_m.get("truth_connect_refused_rate", 0.0),
-                "truth_5xx_rate_long": long_m.get("truth_5xx_rate", 0.0),
-                "truth_p90_latency_ms_long": long_m.get("truth_p90_latency_ms", 0.0),
-                "truth_last_update_ts_ms": short_m.get("truth_last_update_ts_ms", 0),
-                "truth_last_update_ts_ms_long": long_m.get("truth_last_update_ts_ms", 0),
-                "truth_age_seconds": short_m.get("truth_age_seconds"),
-                "truth_age_seconds_long": long_m.get("truth_age_seconds"),
-                "truth_fresh": bool(short_m.get("truth_fresh", False)),
-                "truth_fresh_long": bool(long_m.get("truth_fresh", False)),
+                "truth_rps_long": 0.0,
+                "truth_req_count_long": 0,
+                "truth_timeout_rate_long": 0.0,
+                "truth_connect_refused_rate_long": 0.0,
+                "truth_5xx_rate_long": 0.0,
+                "truth_p90_latency_ms_long": 0.0,
+                "truth_last_update_ts_ms": 0,
+                "truth_last_update_ts_ms_long": 0,
+                "truth_age_seconds": None,
+                "truth_age_seconds_long": None,
+                "truth_fresh": False,
+                "truth_fresh_long": False,
                 "latency_valid_long": bool(long_m.get("latency_valid", False)),
                 "latency_valid_reason_long": long_m.get("latency_valid_reason", ""),
                 "exclusive_delay_long": 0.0,
@@ -627,8 +630,8 @@ def get_graph():
             freshness = {
                 "latency_age_seconds": get_latest_event_age_seconds(redis_cli, svc, now_ms, "net"),
                 "runq_age_seconds": get_latest_event_age_seconds(redis_cli, svc, now_ms, "runq"),
-                "truth_age_seconds": metric.get("truth_age_seconds"),
-                "truth_age_seconds_long": metric.get("truth_age_seconds_long"),
+                "truth_age_seconds": None,
+                "truth_age_seconds_long": None,
                 "topology_age_seconds": get_latest_topology_age_seconds(topo_rows),
             }
             freshness["latency_fresh"] = (
@@ -639,8 +642,8 @@ def get_graph():
                 freshness["runq_age_seconds"] is not None
                 and freshness["runq_age_seconds"] <= METRIC_STALE_AFTER_SECONDS
             )
-            freshness["truth_fresh"] = bool(metric.get("truth_fresh", False))
-            freshness["truth_fresh_long"] = bool(metric.get("truth_fresh_long", False))
+            freshness["truth_fresh"] = False
+            freshness["truth_fresh_long"] = False
             freshness["topology_fresh"] = (
                 freshness["topology_age_seconds"] is not None
                 and freshness["topology_age_seconds"] <= TOPOLOGY_STALE_AFTER_SECONDS
@@ -653,12 +656,17 @@ def get_graph():
                 "rps": metric.get("rps_long", 0.0),
                 "p90_latency": metric.get("p90_latency_long", 0.0),
                 "latency_valid": metric.get("latency_valid_long", False),
-                "truth_p90_latency_ms": metric.get("truth_p90_latency_ms_long", 0.0),
+                "truth_p90_latency_ms": 0.0,
             }
             activity = service_activity_state(short_metric, long_metric, freshness)
             metric.update(freshness)
             metric.update(activity)
-            metric.update(derive_latency_split(metric, topo_rows))
+            child_metric_map = {
+                child: response_metrics.get(child, {})
+                for child in response_topology.get(svc, [])
+                if child in response_metrics
+            }
+            metric.update(derive_latency_split(metric, topo_rows, child_metric_map))
             metric["dependency_attributed_latency_long"] = round(
                 max(
                     0.0,

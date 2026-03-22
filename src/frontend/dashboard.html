@@ -358,11 +358,19 @@
             <strong id="nRunq">-</strong>
           </div>
           <div class="kv">
+            <span class="dim label-inline">CPU Throttle Ratio<span class="hint" title="Short-window CPU throttling evidence from the container cgroup. This is used with RunQ to judge whether a bottleneck is likely CPU-scaleable.">i</span></span>
+            <strong id="nThrottle">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">CPU Throttle Long<span class="hint" title="Longer-window CPU throttling evidence. This helps show recent throttling even after the short burst starts fading.">i</span></span>
+            <strong id="nThrottleLong">-</strong>
+          </div>
+          <div class="kv">
             <span class="dim label-inline">Health<span class="hint" title="High-level state derived from SLO status and recent activity.">i</span></span>
             <strong id="nHealth">-</strong>
           </div>
           <div class="kv">
-            <span class="dim label-inline">Bottleneck Hint<span class="hint" title="Simple dashboard hint showing whether the current symptoms look CPU-starved, dependency-blocked, or healthy.">i</span></span>
+            <span class="dim label-inline">Bottleneck Hint<span class="hint" title="Dashboard hint based on latency-path signals first, then CPU corroboration using RunQ p90 plus CPU throttling.">i</span></span>
             <strong id="nTag">-</strong>
           </div>
         </div>
@@ -626,8 +634,10 @@
 
     function classify(metric) {
       const p90 = preferredP90(metric);
-      const runq = Number(metric.avg_runq_latency || 0);
+      const runq = Number(metric.runq_p90_latency || metric.avg_runq_latency || 0);
       const runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
+      const cpuThrottle = Number(metric.cpu_throttle_ratio || 0);
+      const cpuThrottleLong = Number(metric.cpu_throttle_ratio_long || 0);
       const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
       const dependencyDelay = Number(metric.dependency_attributed_latency || 0);
       const externalWait = Number(metric.external_wait_latency || 0);
@@ -638,9 +648,11 @@
       const violating = latencyValid && !inactive && slo > 0 && p90 > slo;
       let actionTag = "NO ACTION";
       if (inactive) actionTag = "IDLE";
-      else if (violating && serviceHandling >= slo && runq >= runqThreshold) actionTag = "CPU STARVED";
-      else if (violating && dependencyDelay + externalWait >= serviceHandling) actionTag = "DEPENDENCY WAIT";
-      return { p90, latencyValid, runq, runqThreshold, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
+      else if (violating && dependencyDelay >= Math.max(serviceHandling, externalWait)) actionTag = "DOWNSTREAM BOTTLENECK";
+      else if (violating && externalWait >= Math.max(serviceHandling, dependencyDelay)) actionTag = "EXTERNAL / UNMONITORED";
+      else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0) && runq >= runqThreshold && cpuThrottle >= 0.10) actionTag = "CPU SCALEABLE";
+      else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0)) actionTag = "LOCAL NON-CPU / UNCLEAR";
+      return { p90, latencyValid, runq, runqThreshold, cpuThrottle, cpuThrottleLong, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
     }
 
     function nodeLabelLegacy(id, s) {
@@ -813,7 +825,7 @@
     function nodeLabel(id, s) {
       const sloText = s.slo > 0 ? s.slo.toFixed(1) : "-";
       const p90Text = s.latencyValid ? `${s.p90.toFixed(1)}ms` : "N/A";
-      return `${id}\nP90:${p90Text} / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\n${s.actionTag}`;
+      return `${id}\nP90:${p90Text} / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\nThr S:${s.cpuThrottle.toFixed(2)} | L:${s.cpuThrottleLong.toFixed(2)}\n${s.actionTag}`;
     }
 
     function updateNodePanel(id, metric, s) {
@@ -825,6 +837,8 @@
       document.getElementById("nReplicaBounds").textContent = dep.slo ? `${Number(dep.slo.minReplicas || 0)} .. ${Number(dep.slo.maxReplicas || 0)}` : "N/A";
       document.getElementById("nP90").textContent = s.latencyValid ? s.p90.toFixed(3) : "N/A";
       document.getElementById("nRunq").textContent = `${s.runq.toFixed(3)} / ${s.runqThreshold.toFixed(3)}`;
+      document.getElementById("nThrottle").textContent = s.cpuThrottle.toFixed(4);
+      document.getElementById("nThrottleLong").textContent = s.cpuThrottleLong.toFixed(4);
       document.getElementById("nHandle").textContent = s.serviceHandling.toFixed(3);
       document.getElementById("nDep").textContent = s.dependencyDelay.toFixed(3);
       document.getElementById("nExternal").textContent = s.externalWait.toFixed(3);
@@ -845,7 +859,14 @@
 
       const tag = document.getElementById("nTag");
       tag.textContent = s.actionTag;
-      tag.className = s.actionTag === "CPU STARVED" ? "starved" : (s.actionTag === "DEPENDENCY WAIT" ? "blocked" : "healthy");
+      tag.className =
+        s.actionTag === "CPU SCALEABLE"
+          ? "starved"
+          : (
+              s.actionTag === "DOWNSTREAM BOTTLENECK" || s.actionTag === "EXTERNAL / UNMONITORED" || s.actionTag === "LOCAL NON-CPU / UNCLEAR"
+                ? "blocked"
+                : "healthy"
+            );
     }
 
     function renderGraph(data) {

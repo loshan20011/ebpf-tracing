@@ -69,10 +69,7 @@ def service_metric_rows(graph_rows: list[dict], service: str) -> list[dict]:
 
 
 def latency_validity(metric: dict) -> tuple[bool, str]:
-    truth_req_count = int(metric.get("truth_req_count", 0) or 0)
     ebpf_req_corroborated = bool(metric.get("ebpf_req_corroborated", False))
-    if truth_req_count > 0:
-        return True, "truth_request_evidence"
     if ebpf_req_corroborated:
         return True, "corroborated_ebpf_request_evidence"
     if int(metric.get("ebpf_req_count", 0) or 0) > 0:

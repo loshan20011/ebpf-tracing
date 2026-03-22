@@ -26,12 +26,28 @@ TRACE_REDIS_MAX = int(os.getenv("TRACE_REDIS_MAX", "500"))
 ACTIVE_RPS_THRESHOLD = float(os.getenv("ACTIVE_RPS_THRESHOLD", "0.5"))
 DOWNSCALE_RPS_THRESHOLD = float(os.getenv("DOWNSCALE_RPS_THRESHOLD", "0.5"))
 DOWNSCALE_RPS_PER_REPLICA_THRESHOLD = float(os.getenv("DOWNSCALE_RPS_PER_REPLICA_THRESHOLD", "1.0"))
-LOW_DEMAND_STREAK_REQUIRED = int(os.getenv("LOW_DEMAND_STREAK_REQUIRED", "4"))
-STRONG_DOWNSCALE_STREAK_REQUIRED = int(os.getenv("STRONG_DOWNSCALE_STREAK_REQUIRED", "10"))
+LOW_DEMAND_STREAK_REQUIRED = int(os.getenv("LOW_DEMAND_STREAK_REQUIRED", "9"))
+STRONG_DOWNSCALE_STREAK_REQUIRED = int(os.getenv("STRONG_DOWNSCALE_STREAK_REQUIRED", "18"))
 SECONDARY_UPSCALE_MIN_RPS = float(os.getenv("SECONDARY_UPSCALE_MIN_RPS", "3.0"))
 SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA = float(os.getenv("SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA", "1.0"))
 SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED = int(os.getenv("SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED", "2"))
 LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS = float(os.getenv("LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS", "3.0"))
+RUNQ_P90_PRESSURE_STREAK_REQUIRED = int(os.getenv("RUNQ_P90_PRESSURE_STREAK_REQUIRED", "2"))
+RUNQ_AVG_SUPPORT_FACTOR = float(os.getenv("RUNQ_AVG_SUPPORT_FACTOR", "0.5"))
+RUNQ_P90_STRONG_FACTOR = float(os.getenv("RUNQ_P90_STRONG_FACTOR", "1.25"))
+RUNQ_BORDERLINE_MS = float(os.getenv("RUNQ_BORDERLINE_MS", "2.5"))
+LEAF_CPU_CONFIRM_RUNQ_MS = float(os.getenv("LEAF_CPU_CONFIRM_RUNQ_MS", "2.7"))
+CPU_THROTTLE_RATIO_THRESHOLD = float(os.getenv("CPU_THROTTLE_RATIO_THRESHOLD", "0.10"))
+NEAR_BREACH_RATIO_PRIMARY = float(os.getenv("NEAR_BREACH_RATIO_PRIMARY", "0.90"))
+NEAR_BREACH_RATIO_SECONDARY = float(os.getenv("NEAR_BREACH_RATIO_SECONDARY", "1.00"))
+PRIMARY_MODERATE_SUSTAIN_LOOPS = int(os.getenv("PRIMARY_MODERATE_SUSTAIN_LOOPS", "6"))
+PRIMARY_SEVERE_SUSTAIN_LOOPS = int(os.getenv("PRIMARY_SEVERE_SUSTAIN_LOOPS", "9"))
+CHILD_SIMILARITY_FLOOR = float(os.getenv("CHILD_SIMILARITY_FLOOR", "0.70"))
+CHILD_SIMILARITY_CEILING = float(os.getenv("CHILD_SIMILARITY_CEILING", "1.30"))
+LOCAL_FRACTION_MIN = float(os.getenv("LOCAL_FRACTION_MIN", "0.40"))
+DEPENDENCY_FRACTION_MAX = float(os.getenv("DEPENDENCY_FRACTION_MAX", "0.50"))
+PRIMARY_PROTECTIVE_STREAK_REQUIRED = int(os.getenv("PRIMARY_PROTECTIVE_STREAK_REQUIRED", "2"))
+PRIMARY_PROTECTIVE_MIN_RPS_DELTA = float(os.getenv("PRIMARY_PROTECTIVE_MIN_RPS_DELTA", "0.5"))
 UPSCALE_COOLDOWN_S = int(os.getenv("UPSCALE_COOLDOWN_S", "4"))
 DOWNSCALE_COOLDOWN_S = int(os.getenv("DOWNSCALE_COOLDOWN_S", "10"))
 RUNQ_FIXED_THRESHOLD_MS = float(os.getenv("RUNQ_FIXED_THRESHOLD_MS", "3.0"))
@@ -54,6 +70,9 @@ BREACH_STREAKS: Dict[str, int] = {}
 LAST_BREACH_AT: Dict[str, float] = {}
 LOW_DEMAND_STREAKS: Dict[str, int] = {}
 LOCAL_PRESSURE_STREAKS: Dict[str, int] = {}
+RUNQ_PRESSURE_STREAKS: Dict[str, int] = {}
+PRIMARY_PROTECTIVE_STREAKS: Dict[str, int] = {}
+LAST_SHORT_RPS: Dict[str, float] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("SimpleController")
@@ -110,36 +129,15 @@ def metric_obj(metrics, svc: str) -> dict:
     return item if isinstance(item, dict) else {}
 
 
-def truth_window_present(m: dict, long_window: bool = False) -> bool:
-    fresh_key = "truth_fresh_long" if long_window else "truth_fresh"
-    count_key = "truth_req_count_long" if long_window else "truth_req_count"
-    count = safe_int(m.get(count_key, 0), 0)
-    fresh = bool(m.get(fresh_key, False))
-    return fresh and count > 0
-
-
-def truth_value_or_zero(metrics, svc: str, key: str, long_window: bool = False) -> float:
-    m = metric_obj(metrics, svc)
-    if not truth_window_present(m, long_window):
-        return 0.0
-    return safe_float(m.get(key, 0.0), 0.0)
-
-
 def preferred_truth_or_ebpf_p90(metrics, svc: str) -> Tuple[float, str, bool]:
     m = metric_obj(metrics, svc)
     if bool(m.get("latency_fresh", False)) and bool(m.get("evaluable_for_slo", False)):
         return safe_float(m.get("p90_latency", m.get("latency", 0.0)), 0.0), "aggregated", True
-    if truth_window_present(m, False):
-        return safe_float(m.get("truth_p90_latency_ms", 0.0), 0.0), "truth", True
     return 0.0, "none", False
 
 
 def preferred_rps(metrics, svc: str) -> float:
-    m = metric_obj(metrics, svc)
-    truth = truth_value_or_zero(metrics, svc, "truth_rps", False)
-    if truth_window_present(m, False):
-        return truth
-    return safe_float(m.get("rps", 0.0), 0.0)
+    return safe_float(metric_obj(metrics, svc).get("rps", 0.0), 0.0)
 
 
 def runq_latency_ms(metrics, svc: str) -> float:
@@ -148,6 +146,18 @@ def runq_latency_ms(metrics, svc: str) -> float:
     if p90_val > 0:
         return p90_val
     return safe_float(m.get("avg_runq_latency", 0.0), 0.0)
+
+
+def runq_p90_latency_ms(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("runq_p90_latency", 0.0), 0.0)
+
+
+def avg_runq_latency_ms(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("avg_runq_latency", 0.0), 0.0)
+
+
+def cpu_throttle_ratio(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("cpu_throttle_ratio", 0.0), 0.0)
 
 
 def runq_threshold_ms(_metrics, _svc: str) -> float:
@@ -161,17 +171,13 @@ def runq_low_threshold_ms(metrics, svc: str) -> float:
 
 
 def timeout_rate(metrics, svc: str) -> float:
-    return max(
-        truth_value_or_zero(metrics, svc, "truth_timeout_rate", False),
-        truth_value_or_zero(metrics, svc, "truth_timeout_rate_long", True),
-    )
+    _unused = (metrics, svc)
+    return 0.0
 
 
 def error_rate_5xx(metrics, svc: str) -> float:
-    return max(
-        truth_value_or_zero(metrics, svc, "truth_5xx_rate", False),
-        truth_value_or_zero(metrics, svc, "truth_5xx_rate_long", True),
-    )
+    _unused = (metrics, svc)
+    return 0.0
 
 
 def local_handling_latency_ms(metrics, svc: str) -> float:
@@ -186,10 +192,31 @@ def external_wait_ms(metrics, svc: str) -> float:
     return safe_float(metric_obj(metrics, svc).get("external_wait_latency", 0.0), 0.0)
 
 
+def total_latency_ms(metrics, svc: str) -> float:
+    p90_ms, _src, sufficient = preferred_truth_or_ebpf_p90(metrics, svc)
+    if sufficient and p90_ms > 0:
+        return p90_ms
+    local_ms = local_handling_latency_ms(metrics, svc)
+    dep_ms = dependency_latency_ms(metrics, svc)
+    ext_ms = external_wait_ms(metrics, svc)
+    return max(local_ms + dep_ms + ext_ms, 0.0)
+
+
+def local_fraction(metrics, svc: str) -> float:
+    total = max(total_latency_ms(metrics, svc), 0.001)
+    return local_handling_latency_ms(metrics, svc) / total
+
+
+def dependency_fraction(metrics, svc: str) -> float:
+    total = max(total_latency_ms(metrics, svc), 0.001)
+    return dependency_latency_ms(metrics, svc) / total
+
+
 def scale_step_primary(ratio: float, streak: int) -> int:
-    if ratio >= 2.0 and streak >= 3:
+    _unused = ratio
+    if streak >= PRIMARY_SEVERE_SUSTAIN_LOOPS:
         return 3
-    if ratio >= 1.5 and streak >= BREACH_STREAK_REQUIRED:
+    if streak >= PRIMARY_MODERATE_SUSTAIN_LOOPS:
         return 2
     return 1
 
@@ -259,23 +286,147 @@ def is_active_for_control(metrics, svc: str) -> bool:
     return bool(m.get("active_short", False)) and rps >= ACTIVE_RPS_THRESHOLD
 
 
-def local_pressure_present(metrics, svc: str) -> bool:
+def dependency_dominant_for_service(metrics, svc: str) -> bool:
+    local_ms = local_handling_latency_ms(metrics, svc)
+    dep_ms = dependency_latency_ms(metrics, svc)
+    return dep_ms > 0 and dep_ms >= max(local_ms * DEPENDENCY_DOMINANCE_RATIO, local_ms + 1.0)
+
+
+def external_dominant_for_service(metrics, svc: str) -> bool:
     local_ms = local_handling_latency_ms(metrics, svc)
     dep_ms = dependency_latency_ms(metrics, svc)
     ext_ms = external_wait_ms(metrics, svc)
-    runq_ms = runq_latency_ms(metrics, svc)
-    if runq_ms >= runq_threshold_ms(metrics, svc) and runq_ms > 0:
+    return ext_ms > 0 and ext_ms >= max(local_ms * EXTERNAL_DOMINANCE_RATIO, dep_ms * EXTERNAL_DOMINANCE_RATIO)
+
+
+def runq_pressure_candidate(metrics, svc: str) -> bool:
+    local_ms = local_handling_latency_ms(metrics, svc)
+    dep_ms = dependency_latency_ms(metrics, svc)
+    ext_ms = external_wait_ms(metrics, svc)
+    runq_p90_ms = runq_p90_latency_ms(metrics, svc)
+    if runq_p90_ms <= 0 or runq_p90_ms < runq_threshold_ms(metrics, svc):
+        return False
+    if not is_active_for_control(metrics, svc):
+        return False
+    if local_ms <= 0 or local_ms < max(dep_ms * 1.1, ext_ms * 1.1, 1.0):
+        return False
+    if dependency_dominant_for_service(metrics, svc):
+        return False
+    if external_dominant_for_service(metrics, svc):
+        return False
+    return True
+
+
+def local_handling_dominant(metrics, svc: str) -> bool:
+    local_ms = local_handling_latency_ms(metrics, svc)
+    dep_ms = dependency_latency_ms(metrics, svc)
+    ext_ms = external_wait_ms(metrics, svc)
+    return local_ms >= max(dep_ms * 1.1, ext_ms * 1.1, 1.0)
+
+
+def meaningful_runq_cpu_evidence(metrics, svc: str) -> bool:
+    return runq_p90_latency_ms(metrics, svc) >= LEAF_CPU_CONFIRM_RUNQ_MS
+
+
+def borderline_runq_cpu_evidence(metrics, svc: str) -> bool:
+    runq_ms = runq_p90_latency_ms(metrics, svc)
+    return RUNQ_BORDERLINE_MS <= runq_ms < LEAF_CPU_CONFIRM_RUNQ_MS
+
+
+def cpu_throttle_elevated(metrics, svc: str) -> bool:
+    return cpu_throttle_ratio(metrics, svc) >= CPU_THROTTLE_RATIO_THRESHOLD
+
+
+def local_cpu_scaleable(metrics, svc: str) -> bool:
+    return (
+        local_fraction(metrics, svc) >= LOCAL_FRACTION_MIN
+        and dependency_fraction(metrics, svc) < DEPENDENCY_FRACTION_MAX
+        and local_handling_dominant(metrics, svc)
+        and meaningful_runq_cpu_evidence(metrics, svc)
+    )
+
+
+def dependency_or_unexplained_delay_high(metrics, svc: str) -> bool:
+    dep_ms = dependency_latency_ms(metrics, svc)
+    ext_ms = external_wait_ms(metrics, svc)
+    local_ms = local_handling_latency_ms(metrics, svc)
+    return max(dep_ms, ext_ms) >= max(local_ms * 1.1, 1.0)
+
+
+def child_match_score(metrics, current: str, child: str) -> float:
+    current_dep_ms = dependency_latency_ms(metrics, current)
+    expected_child_ms = max(current_dep_ms, 0.0)
+    child_local_ms = local_handling_latency_ms(metrics, child)
+    child_p90_ms, _src, sufficient = preferred_truth_or_ebpf_p90(metrics, child)
+    child_runq_ms = runq_p90_latency_ms(metrics, child)
+    score = 0.0
+    if expected_child_ms > 0:
+        low = max(expected_child_ms * CHILD_SIMILARITY_FLOOR, 1.0)
+        high = max(expected_child_ms * CHILD_SIMILARITY_CEILING, low)
+        if low <= child_p90_ms <= high:
+            score += 3.0
+        if low <= child_local_ms <= high:
+            score += 3.0
+        if child_p90_ms >= max(expected_child_ms * 0.7, 1.0):
+            score += 1.5
+        if child_local_ms >= max(expected_child_ms * 0.7, 1.0):
+            score += 1.5
+    if expected_child_ms > 0 and child_local_ms >= max(expected_child_ms * 0.7, 1.0):
+        score += 3.0
+    if expected_child_ms > 0 and child_runq_ms >= runq_threshold_ms(metrics, child):
+        score += 0.75
+    if current_dep_ms >= max(total_latency_ms(metrics, current) * DEPENDENCY_FRACTION_MAX, 1.0):
+        score += 0.5
+    if sufficient and child_p90_ms > 0:
+        score += 0.5
+    return score
+
+
+def best_matching_monitored_child(current: str, metrics: dict, topology: dict, monitored_services: set) -> Optional[str]:
+    children = [child for child in topology.get(current, []) if child in monitored_services]
+    if not children:
+        return None
+    ranked = sorted(
+        ((child_match_score(metrics, current, child), child) for child in children),
+        key=lambda row: (-row[0], row[1]),
+    )
+    best_score, best_child = ranked[0]
+    return best_child if best_score >= 3.0 else None
+
+
+def record_runq_pressure_streak(service: str, pressure_candidate: bool) -> int:
+    if pressure_candidate:
+        RUNQ_PRESSURE_STREAKS[service] = RUNQ_PRESSURE_STREAKS.get(service, 0) + 1
+    else:
+        RUNQ_PRESSURE_STREAKS[service] = 0
+    return RUNQ_PRESSURE_STREAKS.get(service, 0)
+
+
+def record_primary_protective_streak(service: str, candidate: bool) -> int:
+    if candidate:
+        PRIMARY_PROTECTIVE_STREAKS[service] = PRIMARY_PROTECTIVE_STREAKS.get(service, 0) + 1
+    else:
+        PRIMARY_PROTECTIVE_STREAKS[service] = 0
+    return PRIMARY_PROTECTIVE_STREAKS.get(service, 0)
+
+
+def local_pressure_present(metrics, svc: str) -> bool:
+    runq_p90_ms = runq_p90_latency_ms(metrics, svc)
+    avg_runq_ms = avg_runq_latency_ms(metrics, svc)
+    threshold_ms = runq_threshold_ms(metrics, svc)
+    streak = RUNQ_PRESSURE_STREAKS.get(svc, 0)
+    avg_support = avg_runq_ms >= max(threshold_ms * RUNQ_AVG_SUPPORT_FACTOR, 1.0)
+    strong_runq = runq_p90_ms >= (threshold_ms * RUNQ_P90_STRONG_FACTOR)
+    if runq_pressure_candidate(metrics, svc) and (
+        streak >= RUNQ_P90_PRESSURE_STREAK_REQUIRED
+        or (streak >= 1 and avg_support and strong_runq)
+    ):
         return True
     if timeout_rate(metrics, svc) >= OVERLOAD_TIMEOUT_RATE_THRESHOLD:
         return True
     if error_rate_5xx(metrics, svc) >= OVERLOAD_ERROR_RATE_THRESHOLD:
         return True
-    rps = preferred_rps(metrics, svc)
-    return (
-        local_ms > 0
-        and rps >= LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS
-        and local_ms >= max(dep_ms * 1.1, ext_ms * 1.1, 1.0)
-    )
+    return False
 
 
 def warmup_active(service: str) -> Tuple[bool, int, int]:
@@ -286,8 +437,6 @@ def warmup_active(service: str) -> Tuple[bool, int, int]:
 
 def metric_fresh_enough_for_control(metrics, svc: str) -> bool:
     m = metric_obj(metrics, svc)
-    if truth_window_present(m, False):
-        return True
     demand_fresh = bool(m.get("latency_fresh", False)) and (
         safe_int(m.get("count", 0), 0) > 0
         or safe_float(m.get("rps", 0.0), 0.0) > 0.0
@@ -298,8 +447,6 @@ def metric_fresh_enough_for_control(metrics, svc: str) -> bool:
 
 def demand_fresh_enough_for_downscale(metrics, svc: str) -> bool:
     m = metric_obj(metrics, svc)
-    if truth_window_present(m, False):
-        return True
     if not bool(m.get("latency_fresh", False)):
         return False
     return (
@@ -326,24 +473,9 @@ def strongest_internal_child(
     monitored_services: set,
     slo_cfgs: dict,
 ) -> Optional[str]:
-    children = [child for child in topology.get(current, []) if child in monitored_services]
-    if not children:
-        return None
-
-    rows = topology_meta.get(current, {}) if isinstance(topology_meta.get(current, {}), dict) else {}
-
-    def child_key(child: str):
-        meta = rows.get(child, {}) if isinstance(rows.get(child, {}), dict) else {}
-        weight = safe_float(meta.get("weight", 0.0), 0.0)
-        child_slo = safe_float(slo_cfgs.get(child, {}).get("slo", 0.0), 0.0)
-        child_p90, _source, sufficient = preferred_truth_or_ebpf_p90(metrics, child)
-        ratio = (child_p90 / max(child_slo, 1.0)) if sufficient and child_slo > 0 else 0.0
-        breached = 1 if ratio > 1.0 else 0
-        local_pressure = 1 if local_pressure_present(metrics, child) else 0
-        local_ms = local_handling_latency_ms(metrics, child)
-        return (-breached, -local_pressure, -ratio, -weight, -local_ms, child)
-
-    return sorted(children, key=child_key)[0]
+    matched = best_matching_monitored_child(current, metrics, topology, monitored_services)
+    _unused = (topology_meta, slo_cfgs)
+    return matched
 
 
 def resolve_root_cause(
@@ -357,42 +489,112 @@ def resolve_root_cause(
     current = start_service
     path = [current]
     seen = {current}
+    path_reason: Optional[str] = None
 
     for _depth in range(MAX_ROOT_CAUSE_DEPTH):
         m = metric_obj(metrics, current)
         topo_fresh = bool(m.get("topology_fresh", False))
-        local_ms = local_handling_latency_ms(metrics, current)
-        dep_ms = dependency_latency_ms(metrics, current)
-        ext_ms = external_wait_ms(metrics, current)
-        local_pressure = local_pressure_present(metrics, current)
-        dependency_dominant = dep_ms > 0 and dep_ms >= max(local_ms * DEPENDENCY_DOMINANCE_RATIO, local_ms + 1.0)
-        external_dominant = ext_ms > 0 and ext_ms >= max(local_ms * EXTERNAL_DOMINANCE_RATIO, dep_ms * EXTERNAL_DOMINANCE_RATIO)
+        dependency_dominant = dependency_dominant_for_service(metrics, current)
+        external_dominant = external_dominant_for_service(metrics, current)
+        child = strongest_internal_child(current, metrics, topology, topology_meta, monitored_services, slo_cfgs)
 
-        if external_dominant:
-            return {"classification": "external", "target": current, "path": path, "reason": "external_wait_dominant"}
-
-        if local_pressure and not dependency_dominant:
-            return {"classification": "local", "target": current, "path": path, "reason": "local_pressure"}
-
-        if dependency_dominant:
+        if child and (dependency_dominant or external_dominant or dependency_or_unexplained_delay_high(metrics, current)):
             if not topo_fresh:
-                return {"classification": "unclear", "target": current, "path": path, "reason": "topology_stale"}
-            child = strongest_internal_child(current, metrics, topology, topology_meta, monitored_services, slo_cfgs)
-            if not child:
-                return {"classification": "external", "target": current, "path": path, "reason": "dependency_not_monitored"}
+                return {
+                    "classification": path_reason or "local_unclear_or_non_cpu",
+                    "path_classification": path_reason,
+                    "leaf_classification": "local_unclear_or_non_cpu",
+                    "target": current,
+                    "path": path,
+                    "reason": "topology_stale",
+                }
             if child in seen:
-                return {"classification": "unclear", "target": current, "path": path, "reason": "loop_detected"}
+                return {
+                    "classification": path_reason or "local_unclear_or_non_cpu",
+                    "path_classification": path_reason,
+                    "leaf_classification": "local_unclear_or_non_cpu",
+                    "target": current,
+                    "path": path,
+                    "reason": "loop_detected",
+                }
+            path_reason = "downstream_delay"
             seen.add(child)
             path.append(child)
             current = child
             continue
 
-        if local_pressure:
-            return {"classification": "local", "target": current, "path": path, "reason": "local_pressure"}
+        if (
+            local_cpu_scaleable(metrics, current)
+            and not dependency_dominant
+            and not external_dominant
+        ):
+            leaf_classification = "local_cpu_pressure"
+            return {
+                "classification": path_reason or leaf_classification,
+                "path_classification": path_reason,
+                "leaf_classification": leaf_classification,
+                "target": current,
+                "path": path,
+                "reason": "cpu_scaleable",
+            }
 
-        return {"classification": "unclear", "target": current, "path": path, "reason": "unclear"}
+        if (
+            local_fraction(metrics, current) >= LOCAL_FRACTION_MIN
+            and dependency_fraction(metrics, current) < DEPENDENCY_FRACTION_MAX
+            and local_handling_dominant(metrics, current)
+            and not dependency_dominant
+            and not external_dominant
+        ):
+            leaf_classification = "local_unclear_or_non_cpu"
+            return {
+                "classification": path_reason or leaf_classification,
+                "path_classification": path_reason,
+                "leaf_classification": leaf_classification,
+                "target": current,
+                "path": path,
+                "reason": "local_not_cpu_scaleable",
+            }
 
-    return {"classification": "unclear", "target": current, "path": path, "reason": "max_depth_reached"}
+        if local_handling_dominant(metrics, current) and not child:
+            leaf_classification = "local_unclear_or_non_cpu"
+            return {
+                "classification": path_reason or leaf_classification,
+                "path_classification": path_reason,
+                "leaf_classification": leaf_classification,
+                "target": current,
+                "path": path,
+                "reason": leaf_classification,
+            }
+
+        if dependency_or_unexplained_delay_high(metrics, current):
+            leaf_classification = "external_or_unmonitored_delay"
+            return {
+                "classification": path_reason or leaf_classification,
+                "path_classification": path_reason,
+                "leaf_classification": leaf_classification,
+                "target": current,
+                "path": path,
+                "reason": leaf_classification,
+            }
+
+        leaf_classification = "local_unclear_or_non_cpu"
+        return {
+            "classification": path_reason or leaf_classification,
+            "path_classification": path_reason,
+            "leaf_classification": leaf_classification,
+            "target": current,
+            "path": path,
+            "reason": leaf_classification,
+        }
+
+    return {
+        "classification": path_reason or "local_unclear_or_non_cpu",
+        "path_classification": path_reason,
+        "leaf_classification": "local_unclear_or_non_cpu",
+        "target": current,
+        "path": path,
+        "reason": "max_depth_reached",
+    }
 
 
 def record_breach_streak(service: str, breached: bool) -> int:
@@ -431,11 +633,14 @@ def breach_snapshot(service: str, metrics: dict, cfg: dict) -> dict:
     active = is_active_for_control(metrics, service)
     slo_ms = safe_float(cfg.get("slo", 0.0), 0.0)
     ratio = (p90_ms / max(slo_ms, 1.0)) if slo_ms > 0 else 0.0
+    priority = str(cfg.get("priority", "secondary"))
+    near_breach_ratio = NEAR_BREACH_RATIO_PRIMARY if priority == "primary" else NEAR_BREACH_RATIO_SECONDARY
+    under_pressure = bool(active and sufficient and slo_ms > 0 and ratio >= near_breach_ratio)
     breached = bool(active and sufficient and slo_ms > 0 and p90_ms > slo_ms)
-    streak = record_breach_streak(service, breached)
+    streak = record_breach_streak(service, under_pressure)
     return {
         "service": service,
-        "priority": str(cfg.get("priority", "secondary")),
+        "priority": priority,
         "p90_ms": p90_ms,
         "p90_source": p90_source,
         "evidence_sufficient": bool(sufficient),
@@ -443,6 +648,7 @@ def breach_snapshot(service: str, metrics: dict, cfg: dict) -> dict:
         "active": bool(active),
         "slo_ms": slo_ms,
         "ratio": ratio,
+        "under_pressure": under_pressure,
         "breached": breached,
         "streak": streak,
     }
@@ -479,37 +685,58 @@ def propose_upscale_action(
         resolution["reason"] = "breach_streak_too_short"
         return None, resolution
 
-    classification = resolution["classification"]
+    path_reason = resolution.get("path_classification")
+    final_reason = resolution.get("leaf_classification", resolution.get("classification"))
     target = resolution["target"]
 
-    if classification == "external":
+    if final_reason == "external_or_unmonitored_delay":
         return None, resolution
-    if classification == "unclear":
-        if priority == "primary" and PRIMARY_PROTECTIVE_FRONTEND_SCALE and trigger["ratio"] >= 2.0 and trigger["streak"] >= 3:
+    if final_reason == "local_unclear_or_non_cpu":
+        current_rps = preferred_rps(metrics, service)
+        previous_rps = LAST_SHORT_RPS.get(service, current_rps)
+        protective_candidate = (
+            priority == "primary"
+            and PRIMARY_PROTECTIVE_FRONTEND_SCALE
+            and service == ROOT_SERVICE
+            and trigger["under_pressure"]
+            and runq_p90_latency_ms(metrics, service) >= runq_threshold_ms(metrics, service)
+            and (current_rps - previous_rps) >= PRIMARY_PROTECTIVE_MIN_RPS_DELTA
+            and target == service
+            and not path_reason
+        )
+        protective_streak = record_primary_protective_streak(service, protective_candidate)
+        if protective_candidate and protective_streak >= PRIMARY_PROTECTIVE_STREAK_REQUIRED:
             target = service
             resolution = {
-                "classification": "local",
+                "classification": "local_unclear_or_non_cpu",
+                "path_classification": path_reason,
+                "leaf_classification": final_reason,
                 "target": target,
                 "path": list(resolution.get("path", [service])),
                 "reason": "protective_primary_fallback",
+                "protective_root_used": True,
             }
         else:
             return None, resolution
+    else:
+        record_primary_protective_streak(service, False)
 
     target_cfg = slo_cfgs.get(target)
     if not target_cfg:
-        return None, {"classification": "external", "target": target, "path": resolution.get("path", [service]), "reason": "target_not_monitored"}
+        return None, {"classification": "external_or_unmonitored_delay", "path_classification": path_reason, "leaf_classification": final_reason, "target": target, "path": resolution.get("path", [service]), "reason": "target_not_monitored"}
 
-    if classification != "local":
+    if final_reason != "local_cpu_pressure" and resolution.get("reason") != "protective_primary_fallback":
         record_local_pressure_streak(target, False)
         return None, resolution
 
-    local_pressure_streak = record_local_pressure_streak(target, True)
+    local_pressure_streak = record_local_pressure_streak(target, final_reason == "local_cpu_pressure")
 
     allowed, gate_reason, current_replicas, _ready_replicas = can_scale_now(target, target_cfg)
     if not allowed:
         return None, {
-            "classification": "local",
+            "classification": final_reason,
+            "path_classification": path_reason,
+            "leaf_classification": final_reason,
             "target": target,
             "path": resolution.get("path", [service]),
             "reason": gate_reason,
@@ -520,7 +747,9 @@ def propose_upscale_action(
         demand_per_replica = target_rps / max(current_replicas, 1)
         if not metric_fresh_enough_for_control(metrics, target):
             return None, {
-                "classification": "local",
+                "classification": final_reason,
+                "path_classification": path_reason,
+                "leaf_classification": final_reason,
                 "target": target,
                 "path": resolution.get("path", [service]),
                 "reason": "secondary_metrics_not_fresh",
@@ -530,14 +759,18 @@ def propose_upscale_action(
             or demand_per_replica < SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA
         ):
             return None, {
-                "classification": "local",
+                "classification": final_reason,
+                "path_classification": path_reason,
+                "leaf_classification": final_reason,
                 "target": target,
                 "path": resolution.get("path", [service]),
                 "reason": "secondary_low_demand",
             }
         if local_pressure_streak < SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED:
             return None, {
-                "classification": "local",
+                "classification": final_reason,
+                "path_classification": path_reason,
+                "leaf_classification": final_reason,
                 "target": target,
                 "path": resolution.get("path", [service]),
                 "reason": "secondary_local_pressure_too_short",
@@ -547,12 +780,16 @@ def propose_upscale_action(
         step = scale_step_primary(trigger["ratio"], trigger["streak"])
     else:
         step = scale_step_secondary(trigger["ratio"], trigger["streak"])
+    if resolution.get("reason") == "protective_primary_fallback":
+        step = 1
 
     max_replicas = max(1, safe_int(target_cfg.get("max", 1), 1))
     target_replicas = min(max_replicas, current_replicas + max(1, step))
     if target_replicas <= current_replicas:
         return None, {
-            "classification": "local",
+            "classification": final_reason,
+            "path_classification": path_reason,
+            "leaf_classification": final_reason,
             "target": target,
             "path": resolution.get("path", [service]),
             "reason": "gated",
@@ -562,8 +799,10 @@ def propose_upscale_action(
         "trigger_service": service,
         "target_service": target,
         "priority": priority,
-        "classification": "local",
-        "reason": resolution.get("reason", "local_pressure"),
+        "classification": final_reason,
+        "path_reason": path_reason,
+        "final_reason": final_reason,
+        "reason": resolution.get("reason", final_reason),
         "path": list(resolution.get("path", [service])),
         "step": int(target_replicas - current_replicas),
         "current_replicas": current_replicas,
@@ -574,8 +813,13 @@ def propose_upscale_action(
         "slo_ms": float(trigger["slo_ms"]),
         "rps": float(trigger["rps"]),
         "runq_ms": runq_latency_ms(metrics, target),
+        "cpu_throttle_ratio": cpu_throttle_ratio(metrics, target),
         "runq_threshold_ms": runq_threshold_ms(metrics, target),
         "downstream_ms": dependency_latency_ms(metrics, service),
+        "service_handling_ms": local_handling_latency_ms(metrics, target),
+        "external_wait_ms": external_wait_ms(metrics, target),
+        "under_pressure": bool(trigger.get("under_pressure", False)),
+        "protective_root_used": bool(resolution.get("reason") == "protective_primary_fallback"),
     }
     return action, resolution
 
@@ -600,6 +844,8 @@ def emit_trace(
     final_target_service: str,
     priority_type: str,
     classification: str,
+    path_reason: str,
+    final_reason: str,
     reason: str,
     path: List[str],
     decision: str,
@@ -609,8 +855,14 @@ def emit_trace(
     slo_ms: float,
     rps: float,
     runq_ms: float,
+    cpu_throttle_ratio_value: float,
     runq_threshold_ms_value: float,
     downstream_ms: float,
+    service_handling_ms: float,
+    external_wait_ms_value: float,
+    under_pressure: bool,
+    breach_streak: int,
+    protective_root_used: bool,
     applied_scale_step: int,
 ) -> None:
     if decision == "scale_up":
@@ -631,18 +883,27 @@ def emit_trace(
         "decision": decision,
         "reason": reason,
         "priority_type": priority_type,
+        "mode": priority_type,
         "root_cause_classification": classification,
         "bottleneck_kind": classification,
+        "path_reason": path_reason,
+        "final_reason": final_reason,
         "bottleneck_path": list(path),
         "current_replicas": int(current_replicas),
         "target_replicas": int(target_replicas),
         "applied_scale_step": int(applied_scale_step),
+        "protective_root_used": bool(protective_root_used),
         "slo_ms": round(float(slo_ms), 3),
         "p90_ms": round(float(p90_ms), 3),
         "rps": round(float(rps), 3),
+        "under_pressure": bool(under_pressure),
+        "breach_streak": int(breach_streak),
         "runq_latency_ms": round(float(runq_ms), 3),
+        "cpu_throttle_ratio": round(float(cpu_throttle_ratio_value), 4),
         "runq_threshold_ms": round(float(runq_threshold_ms_value), 3),
         "downstream_latency_ms": round(float(downstream_ms), 3),
+        "service_handling_ms": round(float(service_handling_ms), 3),
+        "external_wait_ms": round(float(external_wait_ms_value), 3),
     }
     serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     if TRACE_LOGS:
@@ -661,7 +922,7 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         record_low_demand_streak(service, False)
         return None
 
-    if snapshot and (bool(snapshot.get("breached", False)) or safe_int(snapshot.get("streak", 0), 0) > 0):
+    if snapshot and (bool(snapshot.get("under_pressure", False)) or safe_int(snapshot.get("streak", 0), 0) > 0):
         record_low_demand_streak(service, False)
         return None
     if recent_breach_hold_active(service):
@@ -792,16 +1053,19 @@ def main():
                 ordered_services.insert(0, ROOT_SERVICE)
 
             for service in ordered_services:
+                record_runq_pressure_streak(service, runq_pressure_candidate(metrics, service))
+
+            for service in ordered_services:
                 cfg = slo_cfgs[service]
                 snapshot = breach_snapshot(service, metrics, cfg)
-                action, resolution = propose_upscale_action(snapshot, metrics, topology, topology_meta, slo_cfgs) if snapshot["breached"] else (None, None)
+                action, resolution = propose_upscale_action(snapshot, metrics, topology, topology_meta, slo_cfgs) if snapshot["under_pressure"] else (None, None)
 
                 if action:
                     if snapshot["priority"] == "primary":
                         primary_actions.append(action)
                     else:
                         secondary_actions.append(action)
-                elif snapshot["breached"]:
+                elif snapshot["under_pressure"]:
                     resolution_target = resolution.get("target", service)
                     resolution_replicas, _resolution_ready = read_replicas(resolution_target)
                     emit_trace(
@@ -809,6 +1073,8 @@ def main():
                         final_target_service=resolution_target,
                         priority_type=snapshot["priority"],
                         classification=resolution.get("classification", "unclear"),
+                        path_reason=str(resolution.get("path_classification") or ""),
+                        final_reason=str(resolution.get("leaf_classification") or resolution.get("classification", "unclear")),
                         reason=resolution.get("reason", "hold"),
                         path=list(resolution.get("path", [service])),
                         decision="no_scale",
@@ -818,14 +1084,21 @@ def main():
                         slo_ms=snapshot["slo_ms"],
                         rps=snapshot["rps"],
                         runq_ms=runq_latency_ms(metrics, resolution_target),
+                        cpu_throttle_ratio_value=cpu_throttle_ratio(metrics, resolution_target),
                         runq_threshold_ms_value=runq_threshold_ms(metrics, resolution_target),
                         downstream_ms=dependency_latency_ms(metrics, service),
+                        service_handling_ms=local_handling_latency_ms(metrics, resolution_target),
+                        external_wait_ms_value=external_wait_ms(metrics, resolution_target),
+                        under_pressure=bool(snapshot.get("under_pressure", False)),
+                        breach_streak=int(snapshot.get("streak", 0)),
+                        protective_root_used=bool(resolution.get("protective_root_used", False)),
                         applied_scale_step=0,
                     )
 
                 downscale = propose_downscale_action(service, metrics, cfg, snapshot=snapshot)
                 if downscale:
                     downscale_actions.append(downscale)
+                LAST_SHORT_RPS[service] = preferred_rps(metrics, service)
 
             chosen = pick_best_action(primary_actions)
             if not chosen:
@@ -850,6 +1123,8 @@ def main():
                     final_target_service=chosen["target_service"],
                     priority_type=chosen["priority"],
                     classification=chosen["classification"],
+                    path_reason=str(chosen.get("path_reason") or ""),
+                    final_reason=str(chosen.get("final_reason") or chosen["classification"]),
                     reason=chosen["reason"],
                     path=chosen["path"],
                     decision="scale_up",
@@ -859,8 +1134,14 @@ def main():
                     slo_ms=chosen["slo_ms"],
                     rps=chosen["rps"],
                     runq_ms=chosen["runq_ms"],
+                    cpu_throttle_ratio_value=chosen.get("cpu_throttle_ratio", 0.0),
                     runq_threshold_ms_value=chosen["runq_threshold_ms"],
                     downstream_ms=chosen["downstream_ms"],
+                    service_handling_ms=chosen.get("service_handling_ms", 0.0),
+                    external_wait_ms_value=chosen.get("external_wait_ms", 0.0),
+                    under_pressure=bool(chosen.get("under_pressure", False)),
+                    breach_streak=int(chosen.get("breach_streak", 0)),
+                    protective_root_used=bool(chosen.get("protective_root_used", False)),
                     applied_scale_step=chosen["step"],
                 )
             elif downscale_actions:
@@ -880,6 +1161,8 @@ def main():
                     final_target_service=chosen_downscale["service"],
                     priority_type=str(slo_cfgs[chosen_downscale["service"]].get("priority", "secondary")),
                     classification="local",
+                    path_reason="",
+                    final_reason="downscale_low_demand",
                     reason="low_demand",
                     path=[chosen_downscale["service"]],
                     decision="scale_down",
@@ -889,8 +1172,14 @@ def main():
                     slo_ms=safe_float(slo_cfgs[chosen_downscale["service"]].get("slo", 0.0), 0.0),
                     rps=chosen_downscale["rps"],
                     runq_ms=chosen_downscale["runq_ms"],
+                    cpu_throttle_ratio_value=cpu_throttle_ratio(metrics, chosen_downscale["service"]),
                     runq_threshold_ms_value=runq_threshold_ms(metrics, chosen_downscale["service"]),
                     downstream_ms=dependency_latency_ms(metrics, chosen_downscale["service"]),
+                    service_handling_ms=local_handling_latency_ms(metrics, chosen_downscale["service"]),
+                    external_wait_ms_value=external_wait_ms(metrics, chosen_downscale["service"]),
+                    under_pressure=False,
+                    breach_streak=0,
+                    protective_root_used=False,
                     applied_scale_step=chosen_downscale["step"],
                 )
 

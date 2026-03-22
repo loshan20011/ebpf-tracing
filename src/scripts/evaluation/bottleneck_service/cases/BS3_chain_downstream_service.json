@@ -1,0 +1,57 @@
+{
+  "analysis": {
+    "monitored_services": [
+      "gateway",
+      "svc-chain",
+      "svc-cpu"
+    ],
+    "root_service": "gateway"
+  },
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BS3_chain_downstream_service",
+  "collector_duration_seconds": 90,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 90,
+  "expected": {
+    "bottleneck_service": "svc-cpu",
+    "graph_edges": [
+      "gateway->svc-chain",
+      "svc-chain->svc-cpu"
+    ],
+    "leaf_reason_class": "local_cpu_pressure",
+    "path_reason_class": "downstream_delay",
+    "reason_class": "downstream_delay"
+  },
+  "initial_replicas": {
+    "gateway": 1,
+    "svc-chain": 1,
+    "svc-cpu": 1,
+    "svc-fanout": 1,
+    "svc-io": 1,
+    "svc-mem": 1,
+    "svc-net": 1
+  },
+  "interval_seconds": 5,
+  "mode": "observation",
+  "namespace": "thrive-demo",
+  "phase_name": "bottleneck_service",
+  "phases": [
+    {
+      "duration_seconds": 90,
+      "name": "steady",
+      "route_mix": {
+        "chain_hot_child": 1.0
+      },
+      "rps": 10.0
+    }
+  ],
+  "random_seed": 7,
+  "routes": {
+    "chain_hot_child": {
+      "method": "GET",
+      "path": "/chain?count=15000000"
+    }
+  },
+  "stabilization_seconds": 35,
+  "system_namespace": "thrive-scale"
+}

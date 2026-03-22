@@ -15,6 +15,15 @@ tracepoint:syscalls:sys_enter_recvfrom
   @read_enter_ts[tid] = nsecs;
 }
 
+tracepoint:syscalls:sys_enter_recvmsg
+{
+  /* Intentionally do not treat recvmsg as a request-start candidate.
+   * The broad recvmsg path previously created noisy REQ evidence.
+   * Functional request timing is now restricted to validated HTTP
+   * method bytes observed on read/recvfrom only.
+   */
+}
+
 tracepoint:syscalls:sys_exit_read,tracepoint:syscalls:sys_exit_recvfrom
 {
   $fd = @read_fd[tid];
@@ -36,6 +45,14 @@ tracepoint:syscalls:sys_exit_read,tracepoint:syscalls:sys_exit_recvfrom
   delete(@read_fd[tid]);
   delete(@read_buf[tid]);
   delete(@read_enter_ts[tid]);
+}
+
+tracepoint:syscalls:sys_exit_recvmsg
+{
+  /* No REQ emission here. If recvmsg-based request evidence is ever
+   * reintroduced, it must use the same HTTP-method validation as the
+   * read/recvfrom path above.
+   */
 }
 
 tracepoint:syscalls:sys_enter_write,tracepoint:syscalls:sys_enter_writev,tracepoint:syscalls:sys_enter_sendto,tracepoint:syscalls:sys_enter_sendmsg

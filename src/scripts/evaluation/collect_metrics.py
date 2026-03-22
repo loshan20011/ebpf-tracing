@@ -10,6 +10,8 @@ import urllib.request
 import urllib.request
 from pathlib import Path
 
+from patch_demo_gateway_slo import prepare_thrive_demo_slos
+
 
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -94,6 +96,10 @@ def kubectl_output(args: list[str]) -> str | None:
 
 def scale_deployment(namespace: str, deployment: str, replicas: int) -> bool:
     return kubectl_ok(["scale", "deployment", deployment, "-n", namespace, f"--replicas={int(replicas)}"])
+
+
+def restart_deployment(namespace: str, deployment: str) -> bool:
+    return kubectl_ok(["rollout", "restart", "deployment", deployment, "-n", namespace])
 
 
 def set_workload_env(kind: str, namespace: str, name: str, env_map: dict[str, str]) -> bool:
@@ -210,9 +216,22 @@ def prepare_case_environment(
 
     reset_response = request_json(f"{args.aggregator_base_url.rstrip('/')}/api/reset")
     session_meta["reset_response"] = reset_response or {"ok": False}
+    if args.namespace == "thrive-demo":
+        slo_setup = prepare_thrive_demo_slos(case_cfg, namespace=args.namespace)
+        session_meta["slo_setup"] = slo_setup
 
     for deployment, replicas in initial_replicas.items():
         scale_deployment(args.namespace, deployment, replicas)
+
+    # Force fresh outbound connections after each aggregator reset so topology
+    # edges can be rediscovered even when workloads normally reuse keep-alive
+    # sockets across requests.
+    restarted = []
+    for deployment in initial_replicas:
+        if restart_deployment(args.namespace, deployment):
+            restarted.append(deployment)
+    for deployment in restarted:
+        wait_for_rollout("deployment", args.namespace, deployment, args.prepare_timeout_seconds)
 
     wait_targets = dict(initial_replicas)
     wait_targets[args.controller_deployment] = session_meta["controller_target_replicas"]
@@ -224,6 +243,7 @@ def prepare_case_environment(
     )
     session_meta["replicas_restored"] = bool(stabilized)
     session_meta["controller_mode_applied"] = bool(controller_ready)
+    session_meta["restarted_deployments"] = restarted
     session_meta["prepared_at_unix_ms"] = int(time.time() * 1000)
     time.sleep(max(0, args.stabilization_seconds))
     session_meta["collection_started_at_unix_ms"] = int(time.time() * 1000)

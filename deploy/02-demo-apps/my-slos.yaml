@@ -30,7 +30,7 @@ metadata:
   name: io-slo
 spec:
   targetDeployment: svc-io
-  sloLatency: 150
+  sloLatency: 100
   minReplicas: 1
   maxReplicas: 5
   priority: secondary
@@ -56,7 +56,7 @@ metadata:
   name: chain-slo
 spec:
   targetDeployment: svc-chain
-  sloLatency: 25
+  sloLatency: 12
   minReplicas: 1
   maxReplicas: 5
   priority: secondary
@@ -69,7 +69,7 @@ metadata:
   name: fanout-slo
 spec:
   targetDeployment: svc-fanout
-  sloLatency: 120
+  sloLatency: 100
   minReplicas: 1
   maxReplicas: 5
   priority: secondary

@@ -65,9 +65,9 @@ spec:
           - name: AGGREGATOR_TIMEOUT_S
             value: "20"
           - name: LOOP_SECONDS
-            value: "2"
+            value: "10"
           - name: TARGET_NAMESPACE
-            value: "sock-shop"
+            value: "thrive-demo"
           - name: ACTIVE_RPS_THRESHOLD
             value: "0.5"
           - name: DOWNSCALE_RPS_THRESHOLD
@@ -75,23 +75,51 @@ spec:
           - name: DOWNSCALE_RPS_PER_REPLICA_THRESHOLD
             value: "1.0"
           - name: LOW_DEMAND_STREAK_REQUIRED
-            value: "4"
+            value: "9"
           - name: STRONG_DOWNSCALE_STREAK_REQUIRED
-            value: "10"
+            value: "18"
           - name: SECONDARY_UPSCALE_MIN_RPS
             value: "3.0"
           - name: SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA
             value: "1.0"
           - name: SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED
             value: "2"
+          - name: PRIMARY_MODERATE_SUSTAIN_LOOPS
+            value: "6"
+          - name: PRIMARY_SEVERE_SUSTAIN_LOOPS
+            value: "9"
+          - name: NEAR_BREACH_RATIO_PRIMARY
+            value: "0.90"
+          - name: NEAR_BREACH_RATIO_SECONDARY
+            value: "1.00"
+          - name: LOCAL_FRACTION_MIN
+            value: "0.40"
+          - name: DEPENDENCY_FRACTION_MAX
+            value: "0.50"
+          - name: CHILD_SIMILARITY_FLOOR
+            value: "0.70"
+          - name: CHILD_SIMILARITY_CEILING
+            value: "1.30"
+          - name: RUNQ_P90_PRESSURE_STREAK_REQUIRED
+            value: "2"
+          - name: PRIMARY_PROTECTIVE_STREAK_REQUIRED
+            value: "2"
+          - name: PRIMARY_PROTECTIVE_MIN_RPS_DELTA
+            value: "0.5"
           - name: LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS
             value: "3.0"
           - name: UPSCALE_COOLDOWN_S
-            value: "4"
+            value: "60"
           - name: DOWNSCALE_COOLDOWN_S
-            value: "10"
+            value: "120"
           - name: RUNQ_FIXED_THRESHOLD_MS
             value: "3.0"
+          - name: RUNQ_BORDERLINE_MS
+            value: "2.5"
+          - name: LEAF_CPU_CONFIRM_RUNQ_MS
+            value: "2.7"
+          - name: CPU_THROTTLE_RATIO_THRESHOLD
+            value: "0.05"
           - name: DOWNSCALE_RUNQ_FACTOR
             value: "0.5"
           - name: DOWNSCALE_RUNQ_MARGIN_MS
@@ -102,5 +130,7 @@ spec:
             value: "0.1"
           - name: OVERLOAD_TIMEOUT_RATE_THRESHOLD
             value: "0.02"
+          - name: RECENT_BREACH_HOLD_S
+            value: "60"
           - name: HEALTH_PORT
             value: "28081"

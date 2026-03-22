@@ -14,6 +14,8 @@ TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "5000"))
 RAW_BUFFER_MAX_EVENTS = int(os.getenv("RAW_BUFFER_MAX_EVENTS", "50000"))
 RUNQ_MIN_US = int(os.getenv("RUNQ_MIN_US", "250"))
+CPU_THROTTLE_POLL_SECONDS = float(os.getenv("CPU_THROTTLE_POLL_SECONDS", "2.0"))
+CPU_THROTTLE_MIN_RATIO = float(os.getenv("CPU_THROTTLE_MIN_RATIO", "0.01"))
 FUNCTIONAL_TEST_MODE = os.getenv("FUNCTIONAL_TEST_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 CMDLINE_SERVICE_FALLBACK_ENABLED = os.getenv("CMDLINE_SERVICE_FALLBACK_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "sensor.bt")
@@ -41,6 +43,9 @@ MONOTONIC_TO_EPOCH_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 STATS_LOCK = threading.Lock()
 PARSED_EVENTS = 0
 FILTERED_EVENTS = 0
+
+THROTTLE_STATE = {}
+THROTTLE_LOCK = threading.Lock()
 
 
 def get_k8s_client():
@@ -178,6 +183,121 @@ def append_event(event):
             EVENT_QUEUE.popleft()
             DROPPED_EVENTS += 1
         EVENT_QUEUE.append(event)
+
+
+def cpu_stat_path_for_pid(pid):
+    try:
+        with open(f"/proc/{pid}/cgroup", "r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                parts = line.strip().split(":", 2)
+                if len(parts) != 3:
+                    continue
+                controllers = parts[1]
+                rel_path = parts[2].strip()
+                if controllers == "" or "cpu" in controllers.split(","):
+                    full_path = os.path.join("/sys/fs/cgroup", rel_path.lstrip("/"), "cpu.stat")
+                    if os.path.exists(full_path):
+                        return full_path
+    except Exception:
+        pass
+    return None
+
+
+def read_cpu_stat(stat_path):
+    stats = {}
+    try:
+        with open(stat_path, "r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    try:
+                        stats[parts[0]] = int(parts[1])
+                    except Exception:
+                        continue
+    except Exception:
+        return None
+
+    periods = int(stats.get("nr_periods", 0) or 0)
+    throttled = int(stats.get("nr_throttled", 0) or 0)
+    throttled_usec = int(stats.get("throttled_usec", stats.get("throttled_time", 0)) or 0)
+    return {
+        "nr_periods": periods,
+        "nr_throttled": throttled,
+        "throttled_usec": throttled_usec,
+    }
+
+
+def cpu_throttle_sampler():
+    while True:
+        now_ns = time.time_ns()
+        service_deltas = {}
+        seen_paths = {}
+
+        try:
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                service = get_service_from_pid(pid)
+                if not service:
+                    continue
+                stat_path = cpu_stat_path_for_pid(pid)
+                if not stat_path:
+                    continue
+                seen_paths[stat_path] = service
+
+            for stat_path, service in seen_paths.items():
+                current = read_cpu_stat(stat_path)
+                if not current:
+                    continue
+                with THROTTLE_LOCK:
+                    previous = THROTTLE_STATE.get(stat_path)
+                    THROTTLE_STATE[stat_path] = {
+                        "service": service,
+                        "nr_periods": current["nr_periods"],
+                        "nr_throttled": current["nr_throttled"],
+                        "throttled_usec": current["throttled_usec"],
+                    }
+                if not previous:
+                    continue
+
+                delta_periods = current["nr_periods"] - int(previous.get("nr_periods", 0) or 0)
+                delta_throttled = current["nr_throttled"] - int(previous.get("nr_throttled", 0) or 0)
+                delta_throttled_usec = current["throttled_usec"] - int(previous.get("throttled_usec", 0) or 0)
+                if delta_periods <= 0 and delta_throttled_usec <= 0:
+                    continue
+
+                bucket = service_deltas.setdefault(service, {"periods": 0, "throttled": 0, "throttled_usec": 0})
+                bucket["periods"] += max(0, delta_periods)
+                bucket["throttled"] += max(0, delta_throttled)
+                bucket["throttled_usec"] += max(0, delta_throttled_usec)
+
+            for service, bucket in service_deltas.items():
+                periods = int(bucket["periods"])
+                throttled = int(bucket["throttled"])
+                throttled_usec = int(bucket["throttled_usec"])
+                ratio = (float(throttled) / float(periods)) if periods > 0 else 0.0
+                if ratio < CPU_THROTTLE_MIN_RATIO and throttled_usec <= 0:
+                    continue
+                append_event(
+                    {
+                        "ts_ns": now_ns,
+                        "service": service,
+                        "pid": 0,
+                        "tid": 0,
+                        "node": NODE_NAME,
+                        "event_type": "cpu_throttle",
+                        "data": {
+                            "throttle_ratio": round(ratio, 6),
+                            "throttled_usec": throttled_usec,
+                            "periods": periods,
+                        },
+                    }
+                )
+        except Exception as exc:
+            print(f"CPU throttle sampler error: {exc}", flush=True)
+
+        time.sleep(max(1.0, CPU_THROTTLE_POLL_SECONDS))
 
 
 def inc_stat(parsed=0, filtered=0):
@@ -380,6 +500,7 @@ def main():
     )
     threading.Thread(target=k8s_metadata_updater, daemon=True).start()
     threading.Thread(target=run_probe, daemon=True).start()
+    threading.Thread(target=cpu_throttle_sampler, daemon=True).start()
     threading.Thread(target=stats_logger, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", AGENT_PORT), MetricsHandler)
     server.serve_forever()

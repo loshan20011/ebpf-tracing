@@ -22,11 +22,14 @@ EBPF_REQ_MIN_COUNT = int(os.getenv("EBPF_REQ_MIN_COUNT", "3"))
 EBPF_REQ_MIN_RPS = float(os.getenv("EBPF_REQ_MIN_RPS", "1.0"))
 EBPF_REQ_MIN_NET_SAMPLES = int(os.getenv("EBPF_REQ_MIN_NET_SAMPLES", "3"))
 EBPF_REQ_MIN_RUNQ_SAMPLES = int(os.getenv("EBPF_REQ_MIN_RUNQ_SAMPLES", "3"))
+RUNQ_FIXED_THRESHOLD_MS = float(os.getenv("RUNQ_FIXED_THRESHOLD_MS", "3.0"))
+CPU_THROTTLE_RATIO_THRESHOLD = float(os.getenv("CPU_THROTTLE_RATIO_THRESHOLD", "0.10"))
+CHILD_MATCH_MIN_SCORE = float(os.getenv("CHILD_MATCH_MIN_SCORE", "1.5"))
+CHILD_MATCH_RATIO = float(os.getenv("CHILD_MATCH_RATIO", "0.5"))
 
 
 def latency_validity(truth_req_count, corroborated_ebpf_req):
-    if int(truth_req_count or 0) > 0:
-        return True, "truth_request_evidence"
+    _unused = truth_req_count
     if bool(corroborated_ebpf_req):
         return True, "corroborated_ebpf_request_evidence"
     return False, "uncorroborated_kernel_background_noise"
@@ -242,6 +245,7 @@ def percentile_p90(values):
 def trim_window(pipe, svc, cutoff_ms):
     pipe.zremrangebyscore(f"ts:net:{svc}", "-inf", cutoff_ms)
     pipe.zremrangebyscore(f"ts:runq:{svc}", "-inf", cutoff_ms)
+    pipe.zremrangebyscore(f"ts:cpu_throttle:{svc}", "-inf", cutoff_ms)
 
 
 def trim_req_buckets(pipe, redis_cli, svc, cutoff_sec):
@@ -321,12 +325,14 @@ def trim_topology_edges(pipe, redis_cli, src_svc, cutoff_sec):
     pipe.expire(f"topo:edge:type:{src_svc}", int(max(60, TOPO_EDGE_TTL_SECONDS * 2)))
 
 
-def ingest_events(redis_cli, events, next_seq, ip_to_service):
+def ingest_events(redis_cli, events, next_seq, ip_to_service, infra_exact=None, infra_prefixes=()):
     if not events:
         return
 
     wall_ms = int(time.time() * 1000)
     wall_sec = int(time.time())
+    infra_exact = {str(s).strip().lower() for s in (infra_exact or set()) if str(s).strip()}
+    infra_prefixes = tuple(str(p).strip().lower() for p in (infra_prefixes or ()) if str(p).strip())
     max_event_ms = 0
     max_event_sec = 0
     pipe = redis_cli.pipeline()
@@ -363,10 +369,16 @@ def ingest_events(redis_cli, events, next_seq, ip_to_service):
             delay_us = int(data.get("delay_us", 0))
             pipe.zadd(f"ts:runq:{svc}", {f"{delay_us}:{seq}": event_ms})
             touched_services.add(svc)
+        elif event_type == "cpu_throttle":
+            ratio_bp = int(round(float(data.get("throttle_ratio", 0.0) or 0.0) * 10000.0))
+            pipe.zadd(f"ts:cpu_throttle:{svc}", {f"{ratio_bp}:{seq}": event_ms})
+            touched_services.add(svc)
         elif event_type == "connect":
             dst_ip = data.get("dst_ip")
             if dst_ip:
                 dst_svc = ip_to_service(dst_ip)
+                if dst_svc and is_infra_service(dst_svc, infra_exact, infra_prefixes):
+                    continue
                 if dst_svc and dst_svc != svc:
                     edge_dst = dst_svc
                     edge_type = "internal"
@@ -419,6 +431,7 @@ def sum_bucket_in_window(bucket, now_sec, window_seconds):
 def aggregate_service_metrics(redis_cli, svc, cutoff_ms, now_sec, window_seconds, truth=None):
     net_rows = redis_cli.zrangebyscore(f"ts:net:{svc}", cutoff_ms, "+inf")
     runq_rows = redis_cli.zrangebyscore(f"ts:runq:{svc}", cutoff_ms, "+inf")
+    throttle_rows = redis_cli.zrangebyscore(f"ts:cpu_throttle:{svc}", cutoff_ms, "+inf")
     req_buckets = redis_cli.hgetall(f"bucket:req:{svc}")
 
     latencies_ms = []
@@ -437,10 +450,19 @@ def aggregate_service_metrics(redis_cli, svc, cutoff_ms, now_sec, window_seconds
         except Exception:
             continue
 
+    throttle_ratios = []
+    for row in throttle_rows:
+        try:
+            ratio_bp = int(row.split(":", 1)[0])
+            throttle_ratios.append(ratio_bp / 10000.0)
+        except Exception:
+            continue
+
     p90_latency = round(percentile_p90(latencies_ms), 3) if latencies_ms else 0.0
     avg_runq = round(sum(runq_ms) / len(runq_ms), 3) if runq_ms else 0.0
     runq_p90 = round(percentile_p90(runq_ms), 3) if runq_ms else 0.0
     runq_max = round(max(runq_ms), 3) if runq_ms else 0.0
+    cpu_throttle_ratio = round(percentile_p90(throttle_ratios), 4) if throttle_ratios else 0.0
     req_count_ebpf = sum_bucket_in_window(req_buckets, now_sec, window_seconds)
     req_rps_ebpf = round(req_count_ebpf / float(window_seconds), 3) if window_seconds > 0 else 0.0
     truth = truth or {}
@@ -453,11 +475,7 @@ def aggregate_service_metrics(redis_cli, svc, cutoff_ms, now_sec, window_seconds
             or len(runq_ms) >= EBPF_REQ_MIN_RUNQ_SAMPLES
         )
     )
-    if truth_req_count > 0:
-        req_count = truth_req_count
-        rps = float(truth.get("rps", 0.0) or 0.0)
-        rps_source = "truth"
-    elif corroborated_ebpf_req:
+    if corroborated_ebpf_req:
         req_count = req_count_ebpf
         rps = req_rps_ebpf
         rps_source = "ebpf_req"
@@ -477,25 +495,27 @@ def aggregate_service_metrics(redis_cli, svc, cutoff_ms, now_sec, window_seconds
         "avg_runq_latency": avg_runq,
         "runq_p90_latency": runq_p90,
         "runq_max_latency": runq_max,
+        "cpu_throttle_ratio": cpu_throttle_ratio,
         "rps": rps,
         "count": req_count,
         "runq_sample_count": int(len(runq_ms)),
+        "cpu_throttle_sample_count": int(len(throttle_ratios)),
         "net_sample_count": int(len(latencies_ms)),
         "ebpf_req_count": int(req_count_ebpf),
         "ebpf_req_corroborated": bool(corroborated_ebpf_req),
         "latency_valid": bool(latency_valid),
         "latency_valid_reason": latency_valid_reason,
-        "truth_req_count": int(truth_req_count),
-        "truth_rps": float(truth.get("rps", 0.0) or 0.0),
+        "truth_req_count": 0,
+        "truth_rps": 0.0,
         "rps_source": rps_source,
-        "truth_timeout_rate": float(truth.get("timeout_rate", 0.0) or 0.0),
-        "truth_connect_refused_rate": float(truth.get("connect_refused_rate", 0.0) or 0.0),
-        "truth_5xx_rate": float(truth.get("error_5xx_rate", 0.0) or 0.0),
-        "truth_p90_latency_ms": float(truth.get("p90_latency_ms", 0.0) or 0.0),
-        "truth_routes": truth.get("routes", {}),
-        "truth_last_update_ts_ms": int(truth.get("last_update_ts_ms", 0) or 0),
-        "truth_age_seconds": truth.get("age_seconds", None),
-        "truth_fresh": bool(truth.get("fresh", False)),
+        "truth_timeout_rate": 0.0,
+        "truth_connect_refused_rate": 0.0,
+        "truth_5xx_rate": 0.0,
+        "truth_p90_latency_ms": 0.0,
+        "truth_routes": {},
+        "truth_last_update_ts_ms": 0,
+        "truth_age_seconds": None,
+        "truth_fresh": False,
     }
 
 
@@ -538,21 +558,18 @@ def get_latest_topology_age_seconds(topology_meta_rows):
 
 
 def service_activity_state(short_metric, long_metric, freshness):
-    short_req = max(int(short_metric.get("count", 0) or 0), int(short_metric.get("truth_req_count", 0) or 0))
-    long_req = max(int(long_metric.get("count", 0) or 0), int(long_metric.get("truth_req_count", 0) or 0))
-    short_rps = max(float(short_metric.get("rps", 0.0) or 0.0), float(short_metric.get("truth_rps", 0.0) or 0.0))
-    long_rps = max(float(long_metric.get("rps", 0.0) or 0.0), float(long_metric.get("truth_rps", 0.0) or 0.0))
+    short_req = int(short_metric.get("count", 0) or 0)
+    long_req = int(long_metric.get("count", 0) or 0)
+    short_rps = float(short_metric.get("rps", 0.0) or 0.0)
+    long_rps = float(long_metric.get("rps", 0.0) or 0.0)
     short_net_samples = int(short_metric.get("net_sample_count", 0) or 0)
     short_runq_samples = int(short_metric.get("runq_sample_count", 0) or 0)
     long_runq_samples = int(long_metric.get("runq_sample_count", 0) or 0)
-    truth_short = int(short_metric.get("truth_req_count", 0) or 0)
-    truth_long = int(long_metric.get("truth_req_count", 0) or 0)
     latency_fresh = freshness.get("latency_fresh", False)
-    truth_fresh = freshness.get("truth_fresh", False)
     runq_fresh = freshness.get("runq_fresh", False)
 
-    short_has_demand = truth_short > 0 or short_req > 0 or short_rps > 0.0
-    long_has_demand = truth_long > 0 or long_req > 0 or long_rps > 0.0
+    short_has_demand = short_req > 0 or short_rps > 0.0
+    long_has_demand = long_req > 0 or long_rps > 0.0
 
     latency_usable_short = (
         latency_fresh
@@ -561,14 +578,12 @@ def service_activity_state(short_metric, long_metric, freshness):
         and (short_net_samples > 0 or short_req > 0)
     )
     latency_usable_long = latency_fresh and bool(long_metric.get("latency_valid", False)) and long_has_demand
-    truth_usable_short = truth_fresh and truth_short > 0
-    truth_usable_long = bool(freshness.get("truth_fresh_long", False)) and truth_long > 0
     runq_usable_short = runq_fresh and short_runq_samples > 0 and short_has_demand
     runq_usable_long = runq_fresh and long_runq_samples > 0 and long_has_demand
 
-    active_short = truth_usable_short or latency_usable_short or runq_usable_short
-    active_long = truth_usable_long or latency_usable_long or runq_usable_long
-    evaluable_for_slo = truth_usable_short or latency_usable_short
+    active_short = latency_usable_short or runq_usable_short
+    active_long = latency_usable_long or runq_usable_long
+    evaluable_for_slo = latency_usable_short
 
     evidence_confidence = 0.0
     if active_short:
@@ -577,9 +592,7 @@ def service_activity_state(short_metric, long_metric, freshness):
         evidence_confidence += 0.20
     if latency_fresh:
         evidence_confidence += 0.20
-    if truth_fresh and truth_short > 0:
-        evidence_confidence += 0.15
-    elif runq_usable_short:
+    if runq_usable_short:
         evidence_confidence += 0.10
     if evaluable_for_slo:
         evidence_confidence += 0.05
@@ -612,47 +625,105 @@ def downstream_wait_hint(edge_rows):
     return max(0.0, min(1.0, external_weight / total_weight))
 
 
+def child_match_score(parent_metric, child_metric):
+    dependency_delay = max(
+        0.0,
+        preferred_metric_latency(parent_metric, "p90_latency") - float(parent_metric.get("exclusive_delay", 0.0) or 0.0),
+    )
+    expected_child_ms = max(dependency_delay, 0.0)
+    threshold_ms = max(expected_child_ms * CHILD_MATCH_RATIO, 1.0)
+    score = 0.0
+
+    child_p90 = preferred_metric_latency(child_metric, "p90_latency")
+    child_local = float(
+        child_metric.get("service_handling_latency", child_metric.get("exclusive_delay", 0.0)) or 0.0
+    )
+    if child_p90 >= threshold_ms:
+        score += 2.0
+    if child_local >= threshold_ms:
+        score += 3.0
+    return round(score, 3)
+
+
+def best_matching_monitored_child(metric, child_metric_map):
+    if not isinstance(child_metric_map, dict) or not child_metric_map:
+        return None, 0.0
+
+    best_child = None
+    best_score = 0.0
+    for child, child_metric in child_metric_map.items():
+        if not isinstance(child_metric, dict):
+            continue
+        score = child_match_score(metric, child_metric)
+        if score > best_score:
+            best_child = child
+            best_score = score
+
+    if best_child and best_score >= CHILD_MATCH_MIN_SCORE:
+        return best_child, best_score
+    return None, round(best_score, 3)
+
+
 def preferred_metric_latency(metric, p90_field="p90_latency"):
     long_window = str(p90_field).endswith("_long")
     primary = float(metric.get(p90_field, metric.get("latency", 0.0)) or 0.0)
     long_field = f"{p90_field}_long" if not long_window else p90_field
     fallback = float(metric.get(long_field, 0.0) or 0.0)
-
-    truth_key = "truth_p90_latency_ms_long" if long_window else "truth_p90_latency_ms"
-    truth_fresh_key = "truth_fresh_long" if long_window else "truth_fresh"
-    truth_count_key = "truth_req_count_long" if long_window else "truth_req_count"
-    truth_val = float(metric.get(truth_key, 0.0) or 0.0)
-    truth_fresh = bool(metric.get(truth_fresh_key, False))
-    truth_count = int(metric.get(truth_count_key, 0) or 0)
     latency_valid_key = "latency_valid_long" if long_window else "latency_valid"
     latency_valid = bool(metric.get(latency_valid_key, False))
 
     if not latency_valid and FUNCTIONAL_TEST_MODE:
         return 0.0
-    # Prefer ThriveScale's own corroborated latency signal when it is available.
     if primary > 0:
         return primary
-    if truth_fresh and truth_count > 0:
-        return truth_val
     if fallback > 0:
         return fallback
-    if truth_val > 0:
-        return truth_val
-    return float(metric.get("truth_p90_latency_ms_long", 0.0) or 0.0)
+    return 0.0
 
 
-def derive_latency_split(metric, topology_meta_rows):
+def derive_latency_split(metric, topology_meta_rows, child_metric_map=None):
     total = preferred_metric_latency(metric, "p90_latency")
     exclusive = float(metric.get("exclusive_delay", 0.0) or 0.0)
     dependency_delay = max(0.0, total - exclusive)
+    matched_child, matched_score = best_matching_monitored_child(metric, child_metric_map or {})
     external_wait = downstream_wait_hint(topology_meta_rows)
-    external_wait_latency = round(dependency_delay * external_wait, 3)
-    dependency_internal_latency = round(max(0.0, dependency_delay - external_wait_latency), 3)
+    runq_p90 = float(metric.get("runq_p90_latency", 0.0) or 0.0)
+    cpu_throttle_ratio = float(metric.get("cpu_throttle_ratio", 0.0) or 0.0)
+
+    service_handling_latency = round(exclusive, 3)
+    dependency_internal_latency = 0.0
+    external_wait_latency = 0.0
+    split_reason = "local_only"
+
+    if dependency_delay > 0.0:
+        if matched_child:
+            dependency_internal_latency = round(dependency_delay, 3)
+            split_reason = "matched_monitored_child"
+        elif external_wait > 0.0:
+            external_wait_latency = round(dependency_delay, 3)
+            split_reason = "external_or_unmonitored_dependency"
+        else:
+            service_handling_latency = round(exclusive + dependency_delay, 3)
+            split_reason = "unmatched_dependency_folded_local"
+    elif external_wait > 0.0 and not matched_child and (
+        runq_p90 < RUNQ_FIXED_THRESHOLD_MS or cpu_throttle_ratio < CPU_THROTTLE_RATIO_THRESHOLD
+    ):
+        # Leaf services with clear external dependency evidence should expose
+        # that wait directly instead of folding the whole request into local
+        # handling. This helps distinguish external/unmonitored delay from
+        # local non-CPU latency.
+        external_wait_latency = round(total, 3)
+        service_handling_latency = 0.0
+        split_reason = "leaf_external_or_unmonitored_dependency"
+
     return {
-        "service_handling_latency": round(exclusive, 3),
+        "service_handling_latency": service_handling_latency,
         "dependency_attributed_latency": round(dependency_internal_latency, 3),
         "external_wait_latency": external_wait_latency,
         "exclusive_delay_source": "topology" if topology_meta_rows else "sparse_fallback",
+        "dependency_match_child": matched_child or "",
+        "dependency_match_score": matched_score,
+        "dependency_split_reason": split_reason,
     }
 
 
@@ -661,8 +732,6 @@ def persist_service_evidence(redis_cli, svc, now_sec, metric):
         "ts_sec": int(now_sec),
         "p90_latency": float(metric.get("raw_p90_latency", metric.get("p90_latency", 0.0)) or 0.0),
         "rps": float(metric.get("rps", 0.0) or 0.0),
-        "truth_rps": float(metric.get("truth_rps", 0.0) or 0.0),
-        "truth_req_count": int(metric.get("truth_req_count", 0) or 0),
         "active_short": bool(metric.get("active_short", False)),
         "active_long": bool(metric.get("active_long", False)),
         "evaluable_for_slo": bool(metric.get("evaluable_for_slo", False)),
