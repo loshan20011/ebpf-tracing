@@ -1,0 +1,34 @@
+{
+  "case_name": "F4_graph_post_cart",
+  "base_url": "http://127.0.0.1:30001",
+  "random_seed": 19,
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "routes": {
+    "cart_post": {
+      "method": "POST",
+      "path": "/cart",
+      "body": {
+        "id": "zzz4f044-b040-410d-8ead-4de0446aec7e",
+        "quantity": 1
+      }
+    }
+  },
+  "phases": [
+    {
+      "name": "cart_post_only_low",
+      "duration_seconds": 60,
+      "rps": 10.0,
+      "route_mix": {
+        "cart_post": 1.0
+      }
+    }
+  ]
+}

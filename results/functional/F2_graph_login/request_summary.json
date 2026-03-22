@@ -1,0 +1,16 @@
+{
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "F2_graph_login",
+  "client_p90_latency_ms": 0.0,
+  "config_path": "src/scripts/evaluation/cases/login_only_low.json",
+  "duration_seconds": 180.001,
+  "ended_at_unix_ms": 1774105007231,
+  "failed_responses": 90,
+  "route_counts": {
+    "login_get": 90
+  },
+  "sent_requests": 90,
+  "started_at_unix_ms": 1774104827229,
+  "success_rps": 0.0,
+  "successful_responses": 0
+}

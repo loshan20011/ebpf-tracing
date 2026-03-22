@@ -25,6 +25,10 @@ spec:
                   type: integer
                 maxReplicas:
                   type: integer
+                priority:
+                  type: string
+                  enum: ["primary", "secondary"]
+                  description: "Priority of the SLO trigger in the causal autoscaling tree"
   scope: Namespaced
   names:
     plural: serviceslos

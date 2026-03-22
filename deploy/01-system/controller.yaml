@@ -74,24 +74,30 @@ spec:
             value: "0.5"
           - name: DOWNSCALE_RPS_PER_REPLICA_THRESHOLD
             value: "1.0"
+          - name: LOW_DEMAND_STREAK_REQUIRED
+            value: "4"
+          - name: STRONG_DOWNSCALE_STREAK_REQUIRED
+            value: "10"
+          - name: SECONDARY_UPSCALE_MIN_RPS
+            value: "3.0"
+          - name: SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA
+            value: "1.0"
+          - name: SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED
+            value: "2"
+          - name: LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS
+            value: "3.0"
           - name: UPSCALE_COOLDOWN_S
             value: "4"
           - name: DOWNSCALE_COOLDOWN_S
             value: "10"
           - name: RUNQ_FIXED_THRESHOLD_MS
             value: "3.0"
-          - name: RUNQ_BASELINE_MARGIN_MS
-            value: "0.5"
-          - name: RUNQ_BASELINE_MULTIPLIER
-            value: "1.25"
           - name: DOWNSCALE_RUNQ_FACTOR
             value: "0.5"
           - name: DOWNSCALE_RUNQ_MARGIN_MS
             value: "1.0"
           - name: DEPENDENCY_DOMINANCE_RATIO
-            value: "1.1"
-          - name: DEPENDENCY_DOMINANCE_MIN_FRACTION
-            value: "0.4"
+            value: "1.25"
           - name: OVERLOAD_ERROR_RATE_THRESHOLD
             value: "0.1"
           - name: OVERLOAD_TIMEOUT_RATE_THRESHOLD

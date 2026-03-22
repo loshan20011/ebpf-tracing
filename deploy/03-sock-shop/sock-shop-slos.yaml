@@ -1,0 +1,82 @@
+# Practical SLOs for Sock Shop stateless application services.
+# The intent is:
+# - front-end is the main user-facing trigger
+# - selected internal stateless services are secondary monitored services
+# - stateful databases and middleware are intentionally excluded from autoscaling targets
+
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-front-end-slo
+spec:
+  targetDeployment: front-end
+  priority: primary
+  sloLatency: 400
+  minReplicas: 1
+  maxReplicas: 6
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-catalogue-slo
+spec:
+  targetDeployment: catalogue
+  priority: secondary
+  sloLatency: 180
+  minReplicas: 1
+  maxReplicas: 5
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-carts-slo
+spec:
+  targetDeployment: carts
+  priority: secondary
+  sloLatency: 160
+  minReplicas: 1
+  maxReplicas: 5
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-orders-slo
+spec:
+  targetDeployment: orders
+  priority: secondary
+  sloLatency: 220
+  minReplicas: 1
+  maxReplicas: 5
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-user-slo
+spec:
+  targetDeployment: user
+  priority: secondary
+  sloLatency: 180
+  minReplicas: 1
+  maxReplicas: 4
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-payment-slo
+spec:
+  targetDeployment: payment
+  priority: secondary
+  sloLatency: 120
+  minReplicas: 1
+  maxReplicas: 4
+---
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: sockshop-shipping-slo
+spec:
+  targetDeployment: shipping
+  priority: secondary
+  sloLatency: 140
+  minReplicas: 1
+  maxReplicas: 4

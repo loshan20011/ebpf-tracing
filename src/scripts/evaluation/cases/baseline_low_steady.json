@@ -1,0 +1,49 @@
+{
+  "case_name": "baseline_low_steady",
+  "base_url": "http://127.0.0.1:30001",
+  "random_seed": 7,
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "routes": {
+    "catalogue_get": {
+      "method": "GET",
+      "path": "/catalogue"
+    },
+    "login_get": {
+      "method": "GET",
+      "path": "/login"
+    },
+    "cart_get": {
+      "method": "GET",
+      "path": "/cart"
+    },
+    "cart_post": {
+      "method": "POST",
+      "path": "/cart",
+      "body": {
+        "id": "zzz4f044-b040-410d-8ead-4de0446aec7e",
+        "quantity": 1
+      }
+    }
+  },
+  "phases": [
+    {
+      "name": "baseline_low_steady",
+      "duration_seconds": 60,
+      "rps": 1.0,
+      "route_mix": {
+        "catalogue_get": 0.5,
+        "login_get": 0.15,
+        "cart_get": 0.2,
+        "cart_post": 0.15
+      }
+    }
+  ]
+}

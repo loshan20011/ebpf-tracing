@@ -3,61 +3,51 @@
 
 tracepoint:syscalls:sys_enter_read
 {
-  $key = (((uint64)pid) << 32) | (uint32)args->fd;
-  @read_start[$key] = nsecs;
   @read_fd[tid] = args->fd;
   @read_buf[tid] = args->buf;
+  @read_enter_ts[tid] = nsecs;
 }
 
 tracepoint:syscalls:sys_enter_recvfrom
 {
-  $key = (((uint64)pid) << 32) | (uint32)args->fd;
-  @read_start[$key] = nsecs;
   @read_fd[tid] = args->fd;
   @read_buf[tid] = args->ubuf;
-}
-
-tracepoint:syscalls:sys_enter_recvmsg
-{
-  $key = (((uint64)pid) << 32) | (uint32)args->fd;
-  @read_start[$key] = nsecs;
-  @read_fd[tid] = args->fd;
+  @read_enter_ts[tid] = nsecs;
 }
 
 tracepoint:syscalls:sys_exit_read,tracepoint:syscalls:sys_exit_recvfrom
 {
   $fd = @read_fd[tid];
   $buf = @read_buf[tid];
+  $enter_ts = @read_enter_ts[tid];
   if ($fd >= 0 && $buf != 0 && args->ret > 4) {
     $first4 = *(uint32 *)$buf;
-    /* "GET ", "POST", "PUT ", "DELE" */
-    if ($first4 == 0x20544547 || $first4 == 0x54534f50 || $first4 == 0x20545550 || $first4 == 0x454c4544) {
+    /* "GET ", "POST", "PUT ", "DELE", "HEAD", "PATC" */
+    if ($first4 == 0x20544547 || $first4 == 0x54534f50 || $first4 == 0x20545550 || $first4 == 0x454c4544 || $first4 == 0x44414548 || $first4 == 0x43544150) {
+      $key = (((uint64)pid) << 32) | (uint32)$fd;
+      if ($enter_ts != 0) {
+        @req_start[$key] = $enter_ts;
+      } else {
+        @req_start[$key] = nsecs;
+      }
       printf("EVT REQ ts=%llu pid=%d tid=%d fd=%d\n", nsecs, pid, tid, $fd);
     }
   }
   delete(@read_fd[tid]);
   delete(@read_buf[tid]);
-}
-
-tracepoint:syscalls:sys_exit_recvmsg
-{
-  $fd = @read_fd[tid];
-  if ($fd >= 0 && args->ret > 4) {
-    printf("EVT REQ ts=%llu pid=%d tid=%d fd=%d\n", nsecs, pid, tid, $fd);
-  }
-  delete(@read_fd[tid]);
+  delete(@read_enter_ts[tid]);
 }
 
 tracepoint:syscalls:sys_enter_write,tracepoint:syscalls:sys_enter_writev,tracepoint:syscalls:sys_enter_sendto,tracepoint:syscalls:sys_enter_sendmsg
 {
   $key = (((uint64)pid) << 32) | (uint32)args->fd;
-  $start = @read_start[$key];
+  $start = @req_start[$key];
   if ($start != 0) {
     $delta_us = (nsecs - $start) / 1000;
     if ($delta_us > 0) {
       printf("EVT NET ts=%llu pid=%d tid=%d fd=%d latency_us=%llu\n", nsecs, pid, tid, args->fd, $delta_us);
     }
-    delete(@read_start[$key]);
+    delete(@req_start[$key]);
   }
 }
 
@@ -95,5 +85,5 @@ tracepoint:sched:sched_switch
 tracepoint:syscalls:sys_enter_close
 {
   $key = (((uint64)pid) << 32) | (uint32)args->fd;
-  delete(@read_start[$key]);
+  delete(@req_start[$key]);
 }

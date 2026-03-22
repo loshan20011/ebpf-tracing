@@ -103,7 +103,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request, serviceName string, p
     totalDuration := time.Since(totalStart)
     timeout, connRefused, failureCategory := classifyError(err)
     publishTruthAsync(truthRecord{
-        Service:         serviceName,
+        // Truth emitted by the gateway should represent the gateway's
+        // end-to-end view of the request. Do not attribute that total
+        // latency to the downstream service, or the platform will treat
+        // child truth latency as if it were service-local execution time.
+        Service:         "gateway",
         Route:           r.URL.Path,
         TsNs:            time.Now().UnixNano(),
         StatusCode:      statusCode,

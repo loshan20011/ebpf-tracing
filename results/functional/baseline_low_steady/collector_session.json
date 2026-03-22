@@ -1,0 +1,8 @@
+{
+  "aggregator_base_url": "http://127.0.0.1:30938",
+  "case_name": "baseline_low_steady",
+  "duration_seconds": 555,
+  "interval_seconds": 5,
+  "namespace": "sock-shop",
+  "started_at_unix_ms": 1774104069550
+}

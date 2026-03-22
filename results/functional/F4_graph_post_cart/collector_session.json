@@ -1,0 +1,8 @@
+{
+  "aggregator_base_url": "http://127.0.0.1:30938",
+  "case_name": "F4_graph_post_cart",
+  "duration_seconds": 195,
+  "interval_seconds": 5,
+  "namespace": "sock-shop",
+  "started_at_unix_ms": 1774105219060
+}

@@ -406,6 +406,12 @@
           <label>Deployment
             <select id="sloDeployment"></select>
           </label>
+          <label>Priority
+            <select id="sloPriority">
+              <option value="primary">primary</option>
+              <option value="secondary">secondary</option>
+            </select>
+          </label>
           <label>SLO (ms)
             <input id="sloLatency" type="number" min="1" value="50" />
           </label>
@@ -513,14 +519,13 @@
               <tr>
                 <th>Time</th>
                 <th>Node</th>
-                <th>P90(S)</th>
-                <th>P90(L)</th>
-                <th>Ex(S)</th>
-                <th>Ex(L)</th>
+                <th>Root P90</th>
                 <th>RunQ</th>
                 <th>RunQ Thr</th>
-                <th>λ(S)</th>
-                <th>λ(L)</th>
+                <th>Root RPS</th>
+                <th>Downstream</th>
+                <th>Bottleneck</th>
+                <th>Kind</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -560,7 +565,7 @@
     const CONTROL_SCALE_DOWN_URL = "/api/control/scale/down";
     const AUDIT_URL = "/api/audit";
     const SUPPORT_TICKETS_URL = "/api/support/tickets";
-    const RUNQ_FALLBACK_THRESHOLD_MS = 25;
+    const RUNQ_FALLBACK_THRESHOLD_MS = 3;
     let selectedNodeId = null;
     let lastTopologySignature = "";
     let controlState = { routes: [], trafficRoutes: [], trafficBaseUrl: "", benchmark: {}, slos: {}, deployments: [] };
@@ -612,30 +617,35 @@
       const truthP90 = Number(metric.truth_p90_latency_ms || 0);
       const truthFresh = Boolean(metric.truth_fresh);
       const truthCount = Number(metric.truth_req_count || 0);
+      const ebpfReqCorroborated = Boolean(metric.ebpf_req_corroborated);
       if (truthFresh && truthCount > 0) return truthP90;
+      if (!truthCount && !ebpfReqCorroborated) return null;
+      if (!metric.active_short && !truthFresh) return 0;
       return Number(metric.p90_latency || metric.latency || truthP90 || 0);
     }
 
     function classify(metric) {
       const p90 = preferredP90(metric);
       const runq = Number(metric.avg_runq_latency || 0);
-      let runqThreshold = Number(metric.runq_dynamic_threshold || 0);
-      if (!(runqThreshold > 0)) runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
+      const runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
       const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
       const dependencyDelay = Number(metric.dependency_attributed_latency || 0);
       const externalWait = Number(metric.external_wait_latency || 0);
       const slo = Number(metric.slo_latency || 0);
-      const rps = Number(metric.rps || 0);
-      const inactive = rps <= 0 && Number(metric.count || 0) <= 0;
-      const violating = !inactive && slo > 0 && p90 > slo;
+      const rps = Number(metric.truth_rps || metric.rps || 0);
+      const inactive = !Boolean(metric.active_short) && !Boolean(metric.truth_fresh);
+      const latencyValid = p90 !== null;
+      const violating = latencyValid && !inactive && slo > 0 && p90 > slo;
       let actionTag = "NO ACTION";
-      if (violating && serviceHandling >= slo && runq >= runqThreshold) actionTag = "CPU STARVED";
+      if (inactive) actionTag = "IDLE";
+      else if (violating && serviceHandling >= slo && runq >= runqThreshold) actionTag = "CPU STARVED";
       else if (violating && dependencyDelay + externalWait >= serviceHandling) actionTag = "DEPENDENCY WAIT";
-      return { p90, runq, runqThreshold, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
+      return { p90, latencyValid, runq, runqThreshold, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
     }
 
     function nodeLabelLegacy(id, s) {
-      return `${id}\nP90:${s.p90.toFixed(1)}ms | RunQ:${s.runq.toFixed(1)} / Thr:${s.runqThreshold.toFixed(1)}\nEx:${s.ex.toFixed(1)}ms | λS:${s.rps.toFixed(2)} λL:${s.rpsLong.toFixed(2)}\n${s.actionTag}`;
+      const p90Text = s.latencyValid ? `${s.p90.toFixed(1)}ms` : "N/A";
+      return `${id}\nP90:${p90Text} | RunQ:${s.runq.toFixed(1)} / Thr:${s.runqThreshold.toFixed(1)}\nEx:${s.ex.toFixed(1)}ms | λS:${s.rps.toFixed(2)} λL:${s.rpsLong.toFixed(2)}\n${s.actionTag}`;
     }
 
     function escapeHtml(value) {
@@ -802,7 +812,8 @@
 
     function nodeLabel(id, s) {
       const sloText = s.slo > 0 ? s.slo.toFixed(1) : "-";
-      return `${id}\nP90:${s.p90.toFixed(1)}ms / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\n${s.actionTag}`;
+      const p90Text = s.latencyValid ? `${s.p90.toFixed(1)}ms` : "N/A";
+      return `${id}\nP90:${p90Text} / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\n${s.actionTag}`;
     }
 
     function updateNodePanel(id, metric, s) {
@@ -812,7 +823,7 @@
       document.getElementById("nName").textContent = id;
       document.getElementById("nReplicas").textContent = dep.name ? `${Number(dep.status_replicas || 0)} ready / ${Number(dep.spec_replicas || 0)} target` : "N/A";
       document.getElementById("nReplicaBounds").textContent = dep.slo ? `${Number(dep.slo.minReplicas || 0)} .. ${Number(dep.slo.maxReplicas || 0)}` : "N/A";
-      document.getElementById("nP90").textContent = s.p90.toFixed(3);
+      document.getElementById("nP90").textContent = s.latencyValid ? s.p90.toFixed(3) : "N/A";
       document.getElementById("nRunq").textContent = `${s.runq.toFixed(3)} / ${s.runqThreshold.toFixed(3)}`;
       document.getElementById("nHandle").textContent = s.serviceHandling.toFixed(3);
       document.getElementById("nDep").textContent = s.dependencyDelay.toFixed(3);
@@ -931,25 +942,22 @@
       for (const t of rows) {
         const ts = t.ts_unix_ms ? new Date(t.ts_unix_ms).toLocaleTimeString() : "--";
         const p90s = Number(t.p90_ms || 0);
-        const p90l = Number(t.p90_long_ms || 0);
-        const exs = Number(t.exclusive_delay_ms || 0);
-        const exl = Number(t.exclusive_delay_long_ms || 0);
-        const runq = Number(t.runq_ms || 0);
+        const runq = Number(t.runq_latency_ms || 0);
         const runqThr = Number(t.runq_threshold_ms || 0);
         const rpss = Number(t.rps || 0);
-        const rpsl = Number(t.rps_long || 0);
+        const downstream = Number(t.downstream_latency_ms || 0);
+        const path = Array.isArray(t.bottleneck_path) && t.bottleneck_path.length ? t.bottleneck_path.join(" -> ") : (t.node || "-");
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${ts}</td>
           <td>${t.node || "-"}</td>
           <td>${p90s.toFixed(2)}</td>
-          <td>${p90l.toFixed(2)}</td>
-          <td>${exs.toFixed(2)}</td>
-          <td>${exl.toFixed(2)}</td>
           <td>${runq.toFixed(2)}</td>
           <td>${runqThr.toFixed(2)}</td>
           <td>${rpss.toFixed(2)}</td>
-          <td>${rpsl.toFixed(2)}</td>
+          <td>${downstream.toFixed(2)}</td>
+          <td>${escapeHtml(path)}</td>
+          <td>${escapeHtml(t.bottleneck_kind || "-")}</td>
           <td>${t.action || "-"}</td>
         `;
         tbody.appendChild(tr);
@@ -964,7 +972,8 @@
         const active = Boolean(metric.active_short || metric.evaluable_for_slo || !s.inactive);
         const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
         const depLatency = Number(metric.dependency_attributed_latency || 0) + Number(metric.external_wait_latency || 0);
-        const totalLatency = Math.max(s.p90, serviceHandling + depLatency, 0.001);
+        const latencyForMath = s.latencyValid ? s.p90 : 0.0;
+        const totalLatency = Math.max(latencyForMath, serviceHandling + depLatency, 0.001);
         const localShare = serviceHandling / totalLatency;
         const depShare = depLatency / totalLatency;
         const latencyFresh = Boolean(metric.latency_fresh);
@@ -977,7 +986,7 @@
             level: "critical",
             service: svc,
             title: `SLO violation on ${svc}`,
-            detail: `P90 ${s.p90.toFixed(2)}ms vs SLO ${s.slo.toFixed(2)}ms under ${s.rps.toFixed(2)} rps.`,
+            detail: `P90 ${s.latencyValid ? s.p90.toFixed(2) : "N/A"} vs SLO ${s.slo.toFixed(2)}ms under ${s.rps.toFixed(2)} rps.`,
           });
         }
         if (active && !latencyFresh) {
@@ -1165,6 +1174,7 @@
       const dep = document.getElementById("sloDeployment").value;
       const cfg = controlState.slos[dep];
       if (!cfg) return;
+      document.getElementById("sloPriority").value = String(cfg.priority || "secondary");
       document.getElementById("sloLatency").value = Number(cfg.sloLatency || 0);
       document.getElementById("sloMin").value = Number(cfg.minReplicas || 1);
       document.getElementById("sloMax").value = Number(cfg.maxReplicas || 1);
@@ -1316,11 +1326,12 @@
 
     document.getElementById("btnSloUpdate").addEventListener("click", async () => {
       const targetDeployment = document.getElementById("sloDeployment").value;
+      const priority = document.getElementById("sloPriority").value;
       const sloLatency = Number(document.getElementById("sloLatency").value || 0);
       const minReplicas = Number(document.getElementById("sloMin").value || 1);
       const maxReplicas = Number(document.getElementById("sloMax").value || 1);
       try {
-        await postJson(CONTROL_SLO_UPDATE_URL, { targetDeployment, sloLatency, minReplicas, maxReplicas });
+        await postJson(CONTROL_SLO_UPDATE_URL, { targetDeployment, priority, sloLatency, minReplicas, maxReplicas });
         setControlMsg(`Updated SLO for ${targetDeployment}`);
         fetchControlState();
       } catch (err) {

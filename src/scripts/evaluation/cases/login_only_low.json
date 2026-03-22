@@ -1,0 +1,30 @@
+{
+  "case_name": "F2_graph_login",
+  "base_url": "http://127.0.0.1:30001",
+  "random_seed": 13,
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "routes": {
+    "login_get": {
+      "method": "GET",
+      "path": "/login"
+    }
+  },
+  "phases": [
+    {
+      "name": "login_only_low",
+      "duration_seconds": 60,
+      "rps": 0.5,
+      "route_mix": {
+        "login_get": 1.0
+      }
+    }
+  ]
+}

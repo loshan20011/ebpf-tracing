@@ -1,9 +1,0 @@
-apiVersion: autoscaling.fyp.io/v1alpha1
-kind: ServiceSLO
-metadata:
-  name: fanout-s2-slo
-spec:
-  targetDeployment: svc-fanout
-  sloLatency: 60
-  minReplicas: 1
-  maxReplicas: 6

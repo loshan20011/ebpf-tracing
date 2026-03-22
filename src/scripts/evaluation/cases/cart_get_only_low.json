@@ -1,0 +1,30 @@
+{
+  "case_name": "F3_graph_cart",
+  "base_url": "http://127.0.0.1:30001",
+  "random_seed": 17,
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "routes": {
+    "cart_get": {
+      "method": "GET",
+      "path": "/cart"
+    }
+  },
+  "phases": [
+    {
+      "name": "cart_get_only_low",
+      "duration_seconds": 60,
+      "rps": 10.0,
+      "route_mix": {
+        "cart_get": 1.0
+      }
+    }
+  ]
+}

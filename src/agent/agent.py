@@ -14,6 +14,8 @@ TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "5000"))
 RAW_BUFFER_MAX_EVENTS = int(os.getenv("RAW_BUFFER_MAX_EVENTS", "50000"))
 RUNQ_MIN_US = int(os.getenv("RUNQ_MIN_US", "250"))
+FUNCTIONAL_TEST_MODE = os.getenv("FUNCTIONAL_TEST_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+CMDLINE_SERVICE_FALLBACK_ENABLED = os.getenv("CMDLINE_SERVICE_FALLBACK_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "sensor.bt")
 MY_PID = os.getpid()
 NODE_NAME = os.getenv("MY_NODE_NAME", socket.gethostname())
@@ -84,7 +86,14 @@ def k8s_metadata_updater():
 
             services = v1.list_namespaced_service(TARGET_NAMESPACE)
             for svc in services.items:
-                app = (svc.metadata.labels.get("app") or svc.metadata.labels.get("name")) if svc.metadata and svc.metadata.labels else svc.metadata.name
+                app = None
+                if svc.metadata and svc.metadata.labels:
+                    app = svc.metadata.labels.get("app") or svc.metadata.labels.get("name")
+                # Preserve the old agent's helpful fallback: if a Service does not
+                # carry an app/name label, still map its ClusterIP to the Service
+                # name so topology edges do not get dropped as "unmapped".
+                if not app and svc.metadata:
+                    app = svc.metadata.name
                 if svc.spec.cluster_ip and svc.spec.cluster_ip != "None":
                     new_ip_map[svc.spec.cluster_ip] = app
                 if app:
@@ -143,16 +152,17 @@ def get_service_from_pid(pid):
     except Exception:
         pass
 
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            cmdline = f.read().decode("utf-8", errors="ignore").lower()
-        for svc in known_svcs:
-            if svc and svc.lower() in cmdline:
-                with MAP_LOCK:
-                    PID_CACHE[pid] = svc
-                return svc
-    except Exception:
-        pass
+    if CMDLINE_SERVICE_FALLBACK_ENABLED and not FUNCTIONAL_TEST_MODE:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().decode("utf-8", errors="ignore").lower()
+            for svc in known_svcs:
+                if svc and svc.lower() in cmdline:
+                    with MAP_LOCK:
+                        PID_CACHE[pid] = svc
+                    return svc
+        except Exception:
+            pass
 
     return None
 

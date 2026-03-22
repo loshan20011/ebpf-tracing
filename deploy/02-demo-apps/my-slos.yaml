@@ -1,3 +1,14 @@
+apiVersion: autoscaling.fyp.io/v1alpha1
+kind: ServiceSLO
+metadata:
+  name: gateway-slo
+spec:
+  targetDeployment: gateway
+  sloLatency: 120
+  minReplicas: 1
+  maxReplicas: 5
+  priority: primary
+---
 # 1. CPU Service
 # Small local CPU-bound handler. Keep this relatively tight so CPU pressure can still trigger scaling.
 apiVersion: autoscaling.fyp.io/v1alpha1
@@ -9,6 +20,7 @@ spec:
   sloLatency: 10
   minReplicas: 1
   maxReplicas: 5
+  priority: secondary
 ---
 # 2. IO Service
 # Intentionally sleeps around 80ms, so a looser target is appropriate.
@@ -21,6 +33,7 @@ spec:
   sloLatency: 150
   minReplicas: 1
   maxReplicas: 5
+  priority: secondary
 ---
 # 3. Memory Service
 # This workload allocates roughly 100MB per request. It is not a CPU-local bottleneck demo, so avoid an unrealistically strict SLO.
@@ -33,6 +46,7 @@ spec:
   sloLatency: 80
   minReplicas: 1
   maxReplicas: 5
+  priority: secondary
 ---
 # 4. Chain Service
 # Calls the CPU service synchronously, so it should allow for downstream latency plus call overhead.
@@ -45,6 +59,7 @@ spec:
   sloLatency: 25
   minReplicas: 1
   maxReplicas: 5
+  priority: secondary
 ---
 # 5. Fanout Service
 # Fans out to CPU and IO in parallel, so its latency is dominated by the slower IO branch.
@@ -57,3 +72,4 @@ spec:
   sloLatency: 120
   minReplicas: 1
   maxReplicas: 5
+  priority: secondary

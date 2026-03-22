@@ -324,11 +324,15 @@ def refresh_slo_map():
             if not target:
                 continue
             new_map[target] = float(spec.get("sloLatency", 0))
+            priority = str(spec.get("priority", "secondary")).strip().lower() or "secondary"
+            if priority not in {"primary", "secondary"}:
+                priority = "secondary"
             new_cfg[target] = {
                 "name": metadata.get("name", ""),
                 "sloLatency": float(spec.get("sloLatency", 0)),
                 "minReplicas": int(spec.get("minReplicas", 1)),
                 "maxReplicas": int(spec.get("maxReplicas", 10)),
+                "priority": priority,
             }
         with K8S_MAP_LOCK:
             SLO_MAP = new_map
@@ -539,6 +543,7 @@ def get_graph():
                 "runq_dynamic_threshold": dynamic_runq_threshold,
                 "latency_long": long_m["p90_latency"],
                 "p90_latency_long": long_m["p90_latency"],
+                "raw_p90_latency_long": long_m.get("raw_p90_latency", 0.0),
                 "avg_runq_latency_long": long_m["avg_runq_latency"],
                 "runq_p90_latency": short_m.get("runq_p90_latency", 0.0),
                 "runq_max_latency": short_m.get("runq_max_latency", 0.0),
@@ -558,6 +563,8 @@ def get_graph():
                 "truth_age_seconds_long": long_m.get("truth_age_seconds"),
                 "truth_fresh": bool(short_m.get("truth_fresh", False)),
                 "truth_fresh_long": bool(long_m.get("truth_fresh", False)),
+                "latency_valid_long": bool(long_m.get("latency_valid", False)),
+                "latency_valid_reason_long": long_m.get("latency_valid_reason", ""),
                 "exclusive_delay_long": 0.0,
                 "window_short_seconds": WINDOW_SHORT_SECONDS,
                 "window_long_seconds": WINDOW_LONG_SECONDS,
@@ -645,6 +652,7 @@ def get_graph():
                 "truth_rps": metric.get("truth_rps_long", 0.0),
                 "rps": metric.get("rps_long", 0.0),
                 "p90_latency": metric.get("p90_latency_long", 0.0),
+                "latency_valid": metric.get("latency_valid_long", False),
                 "truth_p90_latency_ms": metric.get("truth_p90_latency_ms_long", 0.0),
             }
             activity = service_activity_state(short_metric, long_metric, freshness)
@@ -972,10 +980,12 @@ def update_slo():
         return jsonify({"error": "sloLatency must be numeric"}), 400
     min_replicas = parse_int(payload, "minReplicas", 1, 1, 200)
     max_replicas = parse_int(payload, "maxReplicas", max(min_replicas, 5), min_replicas, 500)
-
     refresh_slo_map()
     with K8S_MAP_LOCK:
         existing = SLO_CONFIG_MAP.get(target, {})
+    priority = str(payload.get("priority") or existing.get("priority") or "secondary").strip().lower()
+    if priority not in {"primary", "secondary"}:
+        return jsonify({"error": "priority must be primary or secondary"}), 400
     slo_name = payload.get("name") or existing.get("name")
     if not slo_name:
         return jsonify({"error": f"No ServiceSLO found for targetDeployment={target}"}), 404
@@ -986,6 +996,7 @@ def update_slo():
             "sloLatency": slo_latency,
             "minReplicas": min_replicas,
             "maxReplicas": max_replicas,
+            "priority": priority,
         }
     }
     try:
@@ -1001,7 +1012,13 @@ def update_slo():
         append_audit_event(
             "slo_update",
             "updated",
-            {"target": target, "sloLatency": slo_latency, "minReplicas": min_replicas, "maxReplicas": max_replicas},
+            {
+                "target": target,
+                "sloLatency": slo_latency,
+                "minReplicas": min_replicas,
+                "maxReplicas": max_replicas,
+                "priority": priority,
+            },
         )
         return jsonify(
             {

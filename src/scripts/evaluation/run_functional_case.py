@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import random
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.cookiejar import CookieJar
+from pathlib import Path
+from statistics import quantiles
+
+
+def load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def choose_route(route_mix: dict) -> str:
+    names = list(route_mix.keys())
+    weights = [float(route_mix[name]) for name in names]
+    return random.choices(names, weights=weights, k=1)[0]
+
+
+def make_request(opener, base_url: str, route_cfg: dict) -> dict:
+    method = str(route_cfg.get("method", "GET")).upper()
+    path = str(route_cfg.get("path", "/"))
+    url = urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
+    body = route_cfg.get("body")
+    headers = {"User-Agent": "functional-eval-runner/1.0"}
+    headers.update(route_cfg.get("headers", {}))
+
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers.setdefault("Content-Type", "application/json")
+
+    request = urllib.request.Request(url=url, data=data, headers=headers, method=method)
+    started = time.time()
+    status = 0
+    success = False
+    error_text = ""
+    response_bytes = 0
+    try:
+        with opener.open(request, timeout=float(route_cfg.get("timeout_seconds", 10))) as response:
+            payload = response.read()
+            status = int(response.getcode() or 0)
+            response_bytes = len(payload)
+            success = 200 <= status < 400
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code or 0)
+        response_bytes = len(exc.read() or b"")
+        error_text = str(exc)
+    except Exception as exc:
+        error_text = str(exc)
+
+    ended = time.time()
+    return {
+        "ts_unix_ms": int(started * 1000),
+        "route": str(route_cfg.get("name", path)),
+        "method": method,
+        "path": path,
+        "status": status,
+        "success": success,
+        "latency_ms": round((ended - started) * 1000.0, 3),
+        "response_bytes": response_bytes,
+        "error": error_text,
+    }
+
+
+def p90(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return float(values[0])
+    return float(quantiles(values, n=10, method="inclusive")[8])
+
+
+def run_case(config_path: Path, output_dir: Path) -> int:
+    config = load_json(config_path)
+    case_name = str(config.get("case_name") or config_path.stem)
+    case_dir = output_dir / case_name
+    ensure_dir(case_dir)
+
+    route_defs = config.get("routes", {})
+    phases = config.get("phases", [])
+    if not route_defs or not phases:
+        raise ValueError("config must define routes and phases")
+
+    cookie_jar = CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+    base_url = str(config["base_url"])
+    random.seed(int(config.get("random_seed", 7)))
+
+    request_log_path = case_dir / "request_log.ndjson"
+    summary_path = case_dir / "request_summary.json"
+
+    totals = {
+        "case_name": case_name,
+        "base_url": base_url,
+        "config_path": str(config_path),
+        "started_at_unix_ms": int(time.time() * 1000),
+        "sent_requests": 0,
+        "successful_responses": 0,
+        "failed_responses": 0,
+        "duration_seconds": 0.0,
+        "route_counts": {},
+    }
+
+    start_time = time.time()
+    with request_log_path.open("w", encoding="utf-8") as handle:
+        for phase in phases:
+            phase_name = str(phase.get("name", "phase"))
+            phase_duration = float(phase.get("duration_seconds", 60))
+            phase_rps = max(0.01, float(phase.get("rps", 1.0)))
+            interval = 1.0 / phase_rps
+            phase_end = time.time() + phase_duration
+
+            while time.time() < phase_end:
+                route_name = choose_route(phase["route_mix"])
+                route_cfg = dict(route_defs[route_name])
+                route_cfg["name"] = route_name
+
+                row = make_request(opener, base_url, route_cfg)
+                row["phase"] = phase_name
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+                handle.flush()
+
+                totals["sent_requests"] += 1
+                totals["successful_responses"] += 1 if row["success"] else 0
+                totals["failed_responses"] += 0 if row["success"] else 1
+                totals["route_counts"][route_name] = totals["route_counts"].get(route_name, 0) + 1
+
+                elapsed = time.time() - (row["ts_unix_ms"] / 1000.0)
+                sleep_for = max(0.0, interval - elapsed)
+                time.sleep(sleep_for)
+
+    totals["duration_seconds"] = round(time.time() - start_time, 3)
+
+    latencies = []
+    with request_log_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            row = json.loads(line)
+            if row.get("success"):
+                latencies.append(float(row.get("latency_ms", 0.0)))
+
+    totals["success_rps"] = round(
+        totals["successful_responses"] / max(totals["duration_seconds"], 0.001), 3
+    )
+    totals["client_p90_latency_ms"] = round(p90(latencies), 3)
+    totals["ended_at_unix_ms"] = int(time.time() * 1000)
+
+    summary_path.write_text(json.dumps(totals, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps(totals, indent=2, sort_keys=True))
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run a low-rate functional Sock Shop case.")
+    parser.add_argument("--config", required=True, type=Path, help="Path to case config JSON")
+    parser.add_argument(
+        "--output-root",
+        default=Path("results/functional"),
+        type=Path,
+        help="Directory where case output folders are written",
+    )
+    args = parser.parse_args()
+    return run_case(args.config, args.output_root)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

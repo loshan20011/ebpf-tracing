@@ -5,7 +5,7 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import redis
@@ -15,6 +15,7 @@ from kubernetes import client, config
 AGGREGATOR_URL = os.getenv("AGGREGATOR_URL", "http://aggregator:8000")
 AGGREGATOR_TIMEOUT_S = float(os.getenv("AGGREGATOR_TIMEOUT_S", "5"))
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
+ROOT_SERVICE = os.getenv("ROOT_SERVICE", "front-end")
 LOOP_SECONDS = float(os.getenv("LOOP_SECONDS", "2"))
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8081"))
 
@@ -25,34 +26,34 @@ TRACE_REDIS_MAX = int(os.getenv("TRACE_REDIS_MAX", "500"))
 ACTIVE_RPS_THRESHOLD = float(os.getenv("ACTIVE_RPS_THRESHOLD", "0.5"))
 DOWNSCALE_RPS_THRESHOLD = float(os.getenv("DOWNSCALE_RPS_THRESHOLD", "0.5"))
 DOWNSCALE_RPS_PER_REPLICA_THRESHOLD = float(os.getenv("DOWNSCALE_RPS_PER_REPLICA_THRESHOLD", "1.0"))
+LOW_DEMAND_STREAK_REQUIRED = int(os.getenv("LOW_DEMAND_STREAK_REQUIRED", "4"))
+STRONG_DOWNSCALE_STREAK_REQUIRED = int(os.getenv("STRONG_DOWNSCALE_STREAK_REQUIRED", "10"))
+SECONDARY_UPSCALE_MIN_RPS = float(os.getenv("SECONDARY_UPSCALE_MIN_RPS", "3.0"))
+SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA = float(os.getenv("SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA", "1.0"))
+SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED = int(os.getenv("SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED", "2"))
+LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS = float(os.getenv("LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS", "3.0"))
 UPSCALE_COOLDOWN_S = int(os.getenv("UPSCALE_COOLDOWN_S", "4"))
 DOWNSCALE_COOLDOWN_S = int(os.getenv("DOWNSCALE_COOLDOWN_S", "10"))
 RUNQ_FIXED_THRESHOLD_MS = float(os.getenv("RUNQ_FIXED_THRESHOLD_MS", "3.0"))
-RUNQ_BASELINE_MARGIN_MS = float(os.getenv("RUNQ_BASELINE_MARGIN_MS", "0.5"))
-RUNQ_BASELINE_MULTIPLIER = float(os.getenv("RUNQ_BASELINE_MULTIPLIER", "1.25"))
 DOWNSCALE_RUNQ_FACTOR = float(os.getenv("DOWNSCALE_RUNQ_FACTOR", "0.5"))
 DOWNSCALE_RUNQ_MARGIN_MS = float(os.getenv("DOWNSCALE_RUNQ_MARGIN_MS", "1.0"))
-DEPENDENCY_DOMINANCE_RATIO = float(os.getenv("DEPENDENCY_DOMINANCE_RATIO", "1.1"))
-DEPENDENCY_DOMINANCE_MIN_FRACTION = float(os.getenv("DEPENDENCY_DOMINANCE_MIN_FRACTION", "0.4"))
 OVERLOAD_ERROR_RATE_THRESHOLD = float(os.getenv("OVERLOAD_ERROR_RATE_THRESHOLD", "0.1"))
 OVERLOAD_TIMEOUT_RATE_THRESHOLD = float(os.getenv("OVERLOAD_TIMEOUT_RATE_THRESHOLD", "0.02"))
-UPSCALE_HYSTERESIS_RATIO = float(os.getenv("UPSCALE_HYSTERESIS_RATIO", "1.1"))
-SEVERE_SLO_RATIO = float(os.getenv("SEVERE_SLO_RATIO", "1.5"))
-SEVERE_RUNQ_RATIO = float(os.getenv("SEVERE_RUNQ_RATIO", "1.5"))
-PRESSURE_STREAK_FOR_MODERATE = int(os.getenv("PRESSURE_STREAK_FOR_MODERATE", "2"))
-PRESSURE_STREAK_FOR_SEVERE = int(os.getenv("PRESSURE_STREAK_FOR_SEVERE", "3"))
-MAX_UPSCALE_STEP_PODS = int(os.getenv("MAX_UPSCALE_STEP_PODS", "3"))
-MAX_UPSCALE_STEP_FACTOR = float(os.getenv("MAX_UPSCALE_STEP_FACTOR", "1.5"))
+BREACH_STREAK_REQUIRED = int(os.getenv("BREACH_STREAK_REQUIRED", "2"))
+RECENT_BREACH_HOLD_S = float(os.getenv("RECENT_BREACH_HOLD_S", str(max(4.0, LOOP_SECONDS * 2.0))))
+MAX_ROOT_CAUSE_DEPTH = max(1, int(os.getenv("MAX_ROOT_CAUSE_DEPTH", "5")))
 WARMUP_READY_GAP_RATIO = float(os.getenv("WARMUP_READY_GAP_RATIO", "0.1"))
-UPSCALE_GAP_FRACTION_MILD = float(os.getenv("UPSCALE_GAP_FRACTION_MILD", "0.35"))
-UPSCALE_GAP_FRACTION_MODERATE = float(os.getenv("UPSCALE_GAP_FRACTION_MODERATE", "0.5"))
-UPSCALE_GAP_FRACTION_SEVERE = float(os.getenv("UPSCALE_GAP_FRACTION_SEVERE", "0.7"))
-WARMUP_GAP_FRACTION_CAP = float(os.getenv("WARMUP_GAP_FRACTION_CAP", "0.35"))
+PRIMARY_PROTECTIVE_FRONTEND_SCALE = os.getenv("PRIMARY_PROTECTIVE_FRONTEND_SCALE", "true").lower() == "true"
+DEPENDENCY_DOMINANCE_RATIO = float(os.getenv("DEPENDENCY_DOMINANCE_RATIO", "1.25"))
+EXTERNAL_DOMINANCE_RATIO = float(os.getenv("EXTERNAL_DOMINANCE_RATIO", "1.25"))
 
 READY_STATE = {"ready": False, "last_error": "", "last_loop_ts": 0.0}
 UPSCALE_COOLDOWNS: Dict[str, float] = {}
 DOWNSCALE_COOLDOWNS: Dict[str, float] = {}
-PRESSURE_STREAKS: Dict[str, int] = {}
+BREACH_STREAKS: Dict[str, int] = {}
+LAST_BREACH_AT: Dict[str, float] = {}
+LOW_DEMAND_STREAKS: Dict[str, int] = {}
+LOCAL_PRESSURE_STREAKS: Dict[str, int] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("SimpleController")
@@ -104,10 +105,6 @@ def safe_float(value, default):
         return float(default)
 
 
-def clamp_min(value: float, minimum: float) -> float:
-    return value if value >= minimum else minimum
-
-
 def metric_obj(metrics, svc: str) -> dict:
     item = metrics.get(svc, {})
     return item if isinstance(item, dict) else {}
@@ -128,185 +125,81 @@ def truth_value_or_zero(metrics, svc: str, key: str, long_window: bool = False) 
     return safe_float(m.get(key, 0.0), 0.0)
 
 
-def preferred_p90_ms(metrics, svc: str, long_window: bool = False) -> float:
+def preferred_truth_or_ebpf_p90(metrics, svc: str) -> Tuple[float, str, bool]:
     m = metric_obj(metrics, svc)
-    truth_key = "truth_p90_latency_ms_long" if long_window else "truth_p90_latency_ms"
-    p90_key = "p90_latency_long" if long_window else "p90_latency"
-    truth = truth_value_or_zero(metrics, svc, truth_key, long_window)
-    if truth_window_present(m, long_window):
+    if bool(m.get("latency_fresh", False)) and bool(m.get("evaluable_for_slo", False)):
+        return safe_float(m.get("p90_latency", m.get("latency", 0.0)), 0.0), "aggregated", True
+    if truth_window_present(m, False):
+        return safe_float(m.get("truth_p90_latency_ms", 0.0), 0.0), "truth", True
+    return 0.0, "none", False
+
+
+def preferred_rps(metrics, svc: str) -> float:
+    m = metric_obj(metrics, svc)
+    truth = truth_value_or_zero(metrics, svc, "truth_rps", False)
+    if truth_window_present(m, False):
         return truth
-    return safe_float(m.get(p90_key, m.get("latency", 0.0)), 0.0)
+    return safe_float(m.get("rps", 0.0), 0.0)
 
 
-def preferred_rps(metrics, svc: str, long_window: bool = False) -> float:
+def runq_latency_ms(metrics, svc: str) -> float:
     m = metric_obj(metrics, svc)
-    truth_key = "truth_rps_long" if long_window else "truth_rps"
-    rps_key = "rps_long" if long_window else "rps"
-    truth = truth_value_or_zero(metrics, svc, truth_key, long_window)
-    if truth_window_present(m, long_window):
-        return truth
-    return safe_float(m.get(rps_key, 0.0), 0.0)
-
-
-def runq_latency_ms(metrics, svc: str, long_window: bool = False) -> float:
-    m = metric_obj(metrics, svc)
-    p90_key = "runq_p90_latency_long" if long_window else "runq_p90_latency"
-    avg_key = "avg_runq_latency_long" if long_window else "avg_runq_latency"
-    p90_val = safe_float(m.get(p90_key, 0.0), 0.0)
+    p90_val = safe_float(m.get("runq_p90_latency", 0.0), 0.0)
     if p90_val > 0:
         return p90_val
-    return safe_float(m.get(avg_key, 0.0), 0.0)
+    return safe_float(m.get("avg_runq_latency", 0.0), 0.0)
 
 
-def timeout_rate(metrics, svc: str, long_window: bool = False) -> float:
-    key = "truth_timeout_rate_long" if long_window else "truth_timeout_rate"
-    return truth_value_or_zero(metrics, svc, key, long_window)
-
-
-def error_rate_5xx(metrics, svc: str, long_window: bool = False) -> float:
-    key = "truth_5xx_rate_long" if long_window else "truth_5xx_rate"
-    return truth_value_or_zero(metrics, svc, key, long_window)
-
-
-def downstream_latency_ms(metrics, svc: str, long_window: bool = False) -> float:
-    key = "dependency_attributed_latency_long" if long_window else "dependency_attributed_latency"
-    return safe_float(metric_obj(metrics, svc).get(key, 0.0), 0.0)
-
-
-def local_handling_latency_ms(metrics, svc: str, long_window: bool = False) -> float:
-    key = "exclusive_delay_long" if long_window else "exclusive_delay"
-    return safe_float(metric_obj(metrics, svc).get(key, 0.0), 0.0)
-
-
-def runq_threshold_ms(metrics, svc: str) -> float:
-    m = metric_obj(metrics, svc)
-    dynamic_thr = safe_float(m.get("runq_dynamic_threshold", 0.0), 0.0)
-    if dynamic_thr > 0:
-        return max(dynamic_thr, RUNQ_FIXED_THRESHOLD_MS)
-
-    baseline = safe_float(m.get("runq_baseline", 0.0), 0.0)
-    if baseline > 0:
-        return max(
-            RUNQ_FIXED_THRESHOLD_MS,
-            baseline + RUNQ_BASELINE_MARGIN_MS,
-            baseline * RUNQ_BASELINE_MULTIPLIER,
-        )
+def runq_threshold_ms(_metrics, _svc: str) -> float:
     return RUNQ_FIXED_THRESHOLD_MS
 
 
 def runq_low_threshold_ms(metrics, svc: str) -> float:
-    baseline = safe_float(metric_obj(metrics, svc).get("runq_baseline", 0.0), 0.0)
     fixed = RUNQ_FIXED_THRESHOLD_MS * DOWNSCALE_RUNQ_FACTOR
-    if baseline > 0:
-        return max(fixed, baseline + DOWNSCALE_RUNQ_MARGIN_MS)
-    return fixed
+    _unused = (metrics, svc)
+    return max(fixed, DOWNSCALE_RUNQ_MARGIN_MS)
 
 
-def calculate_upscale_target(
-    current_replicas: int,
-    max_replicas: int,
-    p90_ms: float,
-    slo_ms: float,
-    runq_ms: float,
-    runq_threshold_ms: float,
-    rps: float,
-    demand_threshold: float,
-) -> int:
-    latency_ratio = p90_ms / max(slo_ms, 1.0)
-    runq_ratio = runq_ms / max(runq_threshold_ms, 0.001)
-    rps_per_replica = rps / max(current_replicas, 1)
-    demand_ratio = rps_per_replica / max(demand_threshold, 0.1)
-
-    scale_factor = max(latency_ratio, runq_ratio, demand_ratio)
-    scale_factor = min(scale_factor, 2.0)
-
-    required = math.ceil(current_replicas * scale_factor)
-    return min(max(required, current_replicas + 1), max_replicas)
+def timeout_rate(metrics, svc: str) -> float:
+    return max(
+        truth_value_or_zero(metrics, svc, "truth_timeout_rate", False),
+        truth_value_or_zero(metrics, svc, "truth_timeout_rate_long", True),
+    )
 
 
-def classify_pressure_severity(
-    slo_violated: bool,
-    active: bool,
-    low_demand: bool,
-    p90_ms: float,
-    slo_ms: float,
-    runq_ms: float,
-    runq_threshold_ms: float,
-    local_runq_pressure: bool,
-    overload_support: bool,
-) -> str:
-    if not slo_violated:
-        return "none"
-
-    latency_ratio = p90_ms / max(slo_ms, 1.0)
-    runq_ratio = runq_ms / max(runq_threshold_ms, 0.001)
-
-    if local_runq_pressure and latency_ratio >= SEVERE_SLO_RATIO and runq_ratio >= SEVERE_RUNQ_RATIO:
-        return "severe"
-    if local_runq_pressure and (latency_ratio >= UPSCALE_HYSTERESIS_RATIO or runq_ratio >= 1.0):
-        return "moderate"
-    if overload_support:
-        return "mild"
-    return "mild"
+def error_rate_5xx(metrics, svc: str) -> float:
+    return max(
+        truth_value_or_zero(metrics, svc, "truth_5xx_rate", False),
+        truth_value_or_zero(metrics, svc, "truth_5xx_rate_long", True),
+    )
 
 
-def cap_upscale_target(
-    current_replicas: int,
-    estimated_target: int,
-    max_replicas: int,
-    severity: str,
-    pressure_streak: int,
-    warmup_active: bool,
-) -> int:
-    if estimated_target <= current_replicas:
-        return current_replicas
-
-    if severity == "mild":
-        max_step = min(2, MAX_UPSCALE_STEP_PODS)
-        gap_fraction = UPSCALE_GAP_FRACTION_MILD
-    elif severity == "moderate":
-        max_step = 1 if pressure_streak < PRESSURE_STREAK_FOR_MODERATE else min(2, MAX_UPSCALE_STEP_PODS)
-        gap_fraction = UPSCALE_GAP_FRACTION_MODERATE
-    else:
-        if pressure_streak < PRESSURE_STREAK_FOR_SEVERE:
-            max_step = min(2, MAX_UPSCALE_STEP_PODS)
-        else:
-            max_step = MAX_UPSCALE_STEP_PODS
-        gap_fraction = UPSCALE_GAP_FRACTION_SEVERE
-
-    if warmup_active:
-        max_step = min(max_step, 1)
-        gap_fraction = min(gap_fraction, WARMUP_GAP_FRACTION_CAP)
-
-    gap = max(1, estimated_target - current_replicas)
-    proportional_step = max(1, math.ceil(gap * max(gap_fraction, 0.0)))
-    factor_cap_target = math.ceil(current_replicas * max(MAX_UPSCALE_STEP_FACTOR, 1.0))
-    step_cap_target = current_replicas + min(max_step, proportional_step)
-    allowed_target = min(estimated_target, factor_cap_target, step_cap_target, max_replicas)
-    return max(current_replicas + 1, allowed_target)
+def local_handling_latency_ms(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("service_handling_latency", metric_obj(metrics, svc).get("exclusive_delay", 0.0)), 0.0)
 
 
-def calculate_downscale_target(
-    current_replicas: int,
-    min_replicas: int,
-    rps: float,
-    rps_per_replica: float,
-) -> int:
-    if current_replicas <= min_replicas:
-        return current_replicas
-
-    if rps < 0.1:
-        step = 2
-    elif rps_per_replica < (DOWNSCALE_RPS_PER_REPLICA_THRESHOLD / 2):
-        step = 2
-    else:
-        step = 1
-
-    return max(current_replicas - step, min_replicas)
+def dependency_latency_ms(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("dependency_attributed_latency", 0.0), 0.0)
 
 
-def get_slo_configs() -> Dict[str, Dict[str, float]]:
-    configs = {}
+def external_wait_ms(metrics, svc: str) -> float:
+    return safe_float(metric_obj(metrics, svc).get("external_wait_latency", 0.0), 0.0)
+
+
+def scale_step_primary(ratio: float, streak: int) -> int:
+    if ratio >= 2.0 and streak >= 3:
+        return 3
+    if ratio >= 1.5 and streak >= BREACH_STREAK_REQUIRED:
+        return 2
+    return 1
+
+
+def scale_step_secondary(_ratio: float, _streak: int) -> int:
+    return 1
+
+
+def get_slo_configs() -> Dict[str, Dict[str, object]]:
+    configs: Dict[str, Dict[str, object]] = {}
     raw = custom_api.list_namespaced_custom_object(
         group="autoscaling.fyp.io",
         version="v1alpha1",
@@ -318,19 +211,23 @@ def get_slo_configs() -> Dict[str, Dict[str, float]]:
         deploy = str(spec.get("targetDeployment", "")).strip()
         if not deploy:
             continue
+        priority = str(spec.get("priority", "secondary")).strip().lower()
+        if priority not in {"primary", "secondary"}:
+            priority = "secondary"
         configs[deploy] = {
             "slo": safe_float(spec.get("sloLatency", 50), 50),
             "min": max(1, safe_int(spec.get("minReplicas", 1), 1)),
             "max": max(1, safe_int(spec.get("maxReplicas", 10), 10)),
+            "priority": priority,
         }
     return configs
 
 
-def fetch_graph():
+def fetch_graph_payload() -> dict:
     resp = requests.get(f"{AGGREGATOR_URL.rstrip('/')}/api/graph", timeout=AGGREGATOR_TIMEOUT_S)
     resp.raise_for_status()
     payload = resp.json()
-    return payload.get("metrics", {}) if isinstance(payload, dict) else {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def read_replicas(service: str) -> Tuple[int, int]:
@@ -356,30 +253,365 @@ def set_cooldown(store: Dict[str, float], service: str, seconds: int) -> None:
     store[service] = time.time() + max(0, int(seconds))
 
 
+def is_active_for_control(metrics, svc: str) -> bool:
+    m = metric_obj(metrics, svc)
+    rps = preferred_rps(metrics, svc)
+    return bool(m.get("active_short", False)) and rps >= ACTIVE_RPS_THRESHOLD
+
+
+def local_pressure_present(metrics, svc: str) -> bool:
+    local_ms = local_handling_latency_ms(metrics, svc)
+    dep_ms = dependency_latency_ms(metrics, svc)
+    ext_ms = external_wait_ms(metrics, svc)
+    runq_ms = runq_latency_ms(metrics, svc)
+    if runq_ms >= runq_threshold_ms(metrics, svc) and runq_ms > 0:
+        return True
+    if timeout_rate(metrics, svc) >= OVERLOAD_TIMEOUT_RATE_THRESHOLD:
+        return True
+    if error_rate_5xx(metrics, svc) >= OVERLOAD_ERROR_RATE_THRESHOLD:
+        return True
+    rps = preferred_rps(metrics, svc)
+    return (
+        local_ms > 0
+        and rps >= LATENCY_ONLY_LOCAL_PRESSURE_MIN_RPS
+        and local_ms >= max(dep_ms * 1.1, ext_ms * 1.1, 1.0)
+    )
+
+
+def warmup_active(service: str) -> Tuple[bool, int, int]:
+    desired, ready = read_replicas(service)
+    active = desired > max(ready, 0) and (desired - ready) >= max(1, math.ceil(desired * WARMUP_READY_GAP_RATIO))
+    return active, desired, ready
+
+
+def metric_fresh_enough_for_control(metrics, svc: str) -> bool:
+    m = metric_obj(metrics, svc)
+    if truth_window_present(m, False):
+        return True
+    demand_fresh = bool(m.get("latency_fresh", False)) and (
+        safe_int(m.get("count", 0), 0) > 0
+        or safe_float(m.get("rps", 0.0), 0.0) > 0.0
+        or safe_int(m.get("ebpf_req_count", 0), 0) > 0
+    )
+    return demand_fresh and bool(m.get("evaluable_for_slo", False))
+
+
+def demand_fresh_enough_for_downscale(metrics, svc: str) -> bool:
+    m = metric_obj(metrics, svc)
+    if truth_window_present(m, False):
+        return True
+    if not bool(m.get("latency_fresh", False)):
+        return False
+    return (
+        safe_int(m.get("count", 0), 0) > 0
+        or safe_float(m.get("rps", 0.0), 0.0) > 0.0
+        or safe_int(m.get("ebpf_req_count", 0), 0) > 0
+    )
+
+
+def breach_ratio(metrics, svc: str, slo_cfgs: dict) -> float:
+    cfg = slo_cfgs.get(svc, {})
+    slo_ms = safe_float(cfg.get("slo", 0.0), 0.0)
+    p90_ms, _src, sufficient = preferred_truth_or_ebpf_p90(metrics, svc)
+    if not sufficient or slo_ms <= 0:
+        return 0.0
+    return p90_ms / max(slo_ms, 1.0)
+
+
+def strongest_internal_child(
+    current: str,
+    metrics: dict,
+    topology: dict,
+    topology_meta: dict,
+    monitored_services: set,
+    slo_cfgs: dict,
+) -> Optional[str]:
+    children = [child for child in topology.get(current, []) if child in monitored_services]
+    if not children:
+        return None
+
+    rows = topology_meta.get(current, {}) if isinstance(topology_meta.get(current, {}), dict) else {}
+
+    def child_key(child: str):
+        meta = rows.get(child, {}) if isinstance(rows.get(child, {}), dict) else {}
+        weight = safe_float(meta.get("weight", 0.0), 0.0)
+        child_slo = safe_float(slo_cfgs.get(child, {}).get("slo", 0.0), 0.0)
+        child_p90, _source, sufficient = preferred_truth_or_ebpf_p90(metrics, child)
+        ratio = (child_p90 / max(child_slo, 1.0)) if sufficient and child_slo > 0 else 0.0
+        breached = 1 if ratio > 1.0 else 0
+        local_pressure = 1 if local_pressure_present(metrics, child) else 0
+        local_ms = local_handling_latency_ms(metrics, child)
+        return (-breached, -local_pressure, -ratio, -weight, -local_ms, child)
+
+    return sorted(children, key=child_key)[0]
+
+
+def resolve_root_cause(
+    start_service: str,
+    metrics: dict,
+    topology: dict,
+    topology_meta: dict,
+    monitored_services: set,
+    slo_cfgs: dict,
+) -> dict:
+    current = start_service
+    path = [current]
+    seen = {current}
+
+    for _depth in range(MAX_ROOT_CAUSE_DEPTH):
+        m = metric_obj(metrics, current)
+        topo_fresh = bool(m.get("topology_fresh", False))
+        local_ms = local_handling_latency_ms(metrics, current)
+        dep_ms = dependency_latency_ms(metrics, current)
+        ext_ms = external_wait_ms(metrics, current)
+        local_pressure = local_pressure_present(metrics, current)
+        dependency_dominant = dep_ms > 0 and dep_ms >= max(local_ms * DEPENDENCY_DOMINANCE_RATIO, local_ms + 1.0)
+        external_dominant = ext_ms > 0 and ext_ms >= max(local_ms * EXTERNAL_DOMINANCE_RATIO, dep_ms * EXTERNAL_DOMINANCE_RATIO)
+
+        if external_dominant:
+            return {"classification": "external", "target": current, "path": path, "reason": "external_wait_dominant"}
+
+        if local_pressure and not dependency_dominant:
+            return {"classification": "local", "target": current, "path": path, "reason": "local_pressure"}
+
+        if dependency_dominant:
+            if not topo_fresh:
+                return {"classification": "unclear", "target": current, "path": path, "reason": "topology_stale"}
+            child = strongest_internal_child(current, metrics, topology, topology_meta, monitored_services, slo_cfgs)
+            if not child:
+                return {"classification": "external", "target": current, "path": path, "reason": "dependency_not_monitored"}
+            if child in seen:
+                return {"classification": "unclear", "target": current, "path": path, "reason": "loop_detected"}
+            seen.add(child)
+            path.append(child)
+            current = child
+            continue
+
+        if local_pressure:
+            return {"classification": "local", "target": current, "path": path, "reason": "local_pressure"}
+
+        return {"classification": "unclear", "target": current, "path": path, "reason": "unclear"}
+
+    return {"classification": "unclear", "target": current, "path": path, "reason": "max_depth_reached"}
+
+
+def record_breach_streak(service: str, breached: bool) -> int:
+    if breached:
+        BREACH_STREAKS[service] = BREACH_STREAKS.get(service, 0) + 1
+        LAST_BREACH_AT[service] = time.time()
+    else:
+        BREACH_STREAKS[service] = 0
+    return BREACH_STREAKS.get(service, 0)
+
+
+def recent_breach_hold_active(service: str) -> bool:
+    last_breach = float(LAST_BREACH_AT.get(service, 0.0) or 0.0)
+    return last_breach > 0.0 and (time.time() - last_breach) < RECENT_BREACH_HOLD_S
+
+
+def record_low_demand_streak(service: str, low_demand: bool) -> int:
+    if low_demand:
+        LOW_DEMAND_STREAKS[service] = LOW_DEMAND_STREAKS.get(service, 0) + 1
+    else:
+        LOW_DEMAND_STREAKS[service] = 0
+    return LOW_DEMAND_STREAKS.get(service, 0)
+
+
+def record_local_pressure_streak(service: str, local_pressure: bool) -> int:
+    if local_pressure:
+        LOCAL_PRESSURE_STREAKS[service] = LOCAL_PRESSURE_STREAKS.get(service, 0) + 1
+    else:
+        LOCAL_PRESSURE_STREAKS[service] = 0
+    return LOCAL_PRESSURE_STREAKS.get(service, 0)
+
+
+def breach_snapshot(service: str, metrics: dict, cfg: dict) -> dict:
+    p90_ms, p90_source, sufficient = preferred_truth_or_ebpf_p90(metrics, service)
+    rps = preferred_rps(metrics, service)
+    active = is_active_for_control(metrics, service)
+    slo_ms = safe_float(cfg.get("slo", 0.0), 0.0)
+    ratio = (p90_ms / max(slo_ms, 1.0)) if slo_ms > 0 else 0.0
+    breached = bool(active and sufficient and slo_ms > 0 and p90_ms > slo_ms)
+    streak = record_breach_streak(service, breached)
+    return {
+        "service": service,
+        "priority": str(cfg.get("priority", "secondary")),
+        "p90_ms": p90_ms,
+        "p90_source": p90_source,
+        "evidence_sufficient": bool(sufficient),
+        "rps": rps,
+        "active": bool(active),
+        "slo_ms": slo_ms,
+        "ratio": ratio,
+        "breached": breached,
+        "streak": streak,
+    }
+
+
+def can_scale_now(service: str, cfg: dict) -> Tuple[bool, str, int, int]:
+    current_replicas, ready_replicas = read_replicas(service)
+    max_replicas = max(1, safe_int(cfg.get("max", 1), 1))
+    if current_replicas >= max_replicas:
+        return False, "at_max", current_replicas, ready_replicas
+    if cooldown_active(UPSCALE_COOLDOWNS, service):
+        return False, "cooldown_active", current_replicas, ready_replicas
+    warm = current_replicas > max(ready_replicas, 0) and (
+        current_replicas - ready_replicas
+    ) >= max(1, math.ceil(current_replicas * WARMUP_READY_GAP_RATIO))
+    if warm:
+        return False, "warmup_active", current_replicas, ready_replicas
+    return True, "", current_replicas, ready_replicas
+
+
+def propose_upscale_action(
+    trigger: dict,
+    metrics: dict,
+    topology: dict,
+    topology_meta: dict,
+    slo_cfgs: dict,
+) -> Tuple[Optional[dict], dict]:
+    service = trigger["service"]
+    priority = trigger["priority"]
+    resolution = resolve_root_cause(service, metrics, topology, topology_meta, set(slo_cfgs.keys()), slo_cfgs)
+
+    if trigger["streak"] < BREACH_STREAK_REQUIRED:
+        resolution["classification"] = "unclear"
+        resolution["reason"] = "breach_streak_too_short"
+        return None, resolution
+
+    classification = resolution["classification"]
+    target = resolution["target"]
+
+    if classification == "external":
+        return None, resolution
+    if classification == "unclear":
+        if priority == "primary" and PRIMARY_PROTECTIVE_FRONTEND_SCALE and trigger["ratio"] >= 2.0 and trigger["streak"] >= 3:
+            target = service
+            resolution = {
+                "classification": "local",
+                "target": target,
+                "path": list(resolution.get("path", [service])),
+                "reason": "protective_primary_fallback",
+            }
+        else:
+            return None, resolution
+
+    target_cfg = slo_cfgs.get(target)
+    if not target_cfg:
+        return None, {"classification": "external", "target": target, "path": resolution.get("path", [service]), "reason": "target_not_monitored"}
+
+    if classification != "local":
+        record_local_pressure_streak(target, False)
+        return None, resolution
+
+    local_pressure_streak = record_local_pressure_streak(target, True)
+
+    allowed, gate_reason, current_replicas, _ready_replicas = can_scale_now(target, target_cfg)
+    if not allowed:
+        return None, {
+            "classification": "local",
+            "target": target,
+            "path": resolution.get("path", [service]),
+            "reason": gate_reason,
+        }
+
+    if priority == "secondary":
+        target_rps = preferred_rps(metrics, target)
+        demand_per_replica = target_rps / max(current_replicas, 1)
+        if not metric_fresh_enough_for_control(metrics, target):
+            return None, {
+                "classification": "local",
+                "target": target,
+                "path": resolution.get("path", [service]),
+                "reason": "secondary_metrics_not_fresh",
+            }
+        if (
+            target_rps < SECONDARY_UPSCALE_MIN_RPS
+            or demand_per_replica < SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA
+        ):
+            return None, {
+                "classification": "local",
+                "target": target,
+                "path": resolution.get("path", [service]),
+                "reason": "secondary_low_demand",
+            }
+        if local_pressure_streak < SECONDARY_LOCAL_PRESSURE_STREAK_REQUIRED:
+            return None, {
+                "classification": "local",
+                "target": target,
+                "path": resolution.get("path", [service]),
+                "reason": "secondary_local_pressure_too_short",
+            }
+
+    if priority == "primary":
+        step = scale_step_primary(trigger["ratio"], trigger["streak"])
+    else:
+        step = scale_step_secondary(trigger["ratio"], trigger["streak"])
+
+    max_replicas = max(1, safe_int(target_cfg.get("max", 1), 1))
+    target_replicas = min(max_replicas, current_replicas + max(1, step))
+    if target_replicas <= current_replicas:
+        return None, {
+            "classification": "local",
+            "target": target,
+            "path": resolution.get("path", [service]),
+            "reason": "gated",
+        }
+
+    action = {
+        "trigger_service": service,
+        "target_service": target,
+        "priority": priority,
+        "classification": "local",
+        "reason": resolution.get("reason", "local_pressure"),
+        "path": list(resolution.get("path", [service])),
+        "step": int(target_replicas - current_replicas),
+        "current_replicas": current_replicas,
+        "target_replicas": target_replicas,
+        "breach_streak": int(trigger["streak"]),
+        "ratio": float(trigger["ratio"]),
+        "p90_ms": float(trigger["p90_ms"]),
+        "slo_ms": float(trigger["slo_ms"]),
+        "rps": float(trigger["rps"]),
+        "runq_ms": runq_latency_ms(metrics, target),
+        "runq_threshold_ms": runq_threshold_ms(metrics, target),
+        "downstream_ms": dependency_latency_ms(metrics, service),
+    }
+    return action, resolution
+
+
+def pick_best_action(actions: List[dict]) -> Optional[dict]:
+    if not actions:
+        return None
+
+    def action_key(action: dict):
+        return (
+            -safe_int(action.get("breach_streak", 0), 0),
+            -safe_float(action.get("ratio", 0.0), 0.0),
+            str(action.get("trigger_service", "")),
+            str(action.get("target_service", "")),
+        )
+
+    return sorted(actions, key=action_key)[0]
+
+
 def emit_trace(
-    service: str,
-    decision: str,
-    decision_class: str,
+    trigger_service: str,
+    final_target_service: str,
+    priority_type: str,
+    classification: str,
     reason: str,
+    path: List[str],
+    decision: str,
     current_replicas: int,
     target_replicas: int,
     p90_ms: float,
+    slo_ms: float,
     rps: float,
     runq_ms: float,
+    runq_threshold_ms_value: float,
     downstream_ms: float,
-    timeout_rate_val: float,
-    error_rate_5xx_val: float,
-    slo_ms: float,
-    local_cpu_pressure: bool,
-    dependency_dominant: bool,
-    low_demand: bool,
-    runq_threshold_val: float,
-    dominant_signal: str = "",
-    pressure_streak: int = 0,
-    severity: str = "none",
-    estimated_target: int = 0,
-    applied_target: int = 0,
-    warmup_active: bool = False,
+    applied_scale_step: int,
 ) -> None:
     if decision == "scale_up":
         action = f"scale_to_{target_replicas}"
@@ -391,32 +623,26 @@ def emit_trace(
     payload = {
         "type": "decision_trace",
         "ts_unix_ms": int(time.time() * 1000),
-        "root": service,
-        "node": service,
-        "service": service,
+        "root": trigger_service,
+        "trigger_service": trigger_service,
+        "node": final_target_service,
+        "service": final_target_service,
         "action": action,
         "decision": decision,
-        "decision_class": decision_class,
         "reason": reason,
+        "priority_type": priority_type,
+        "root_cause_classification": classification,
+        "bottleneck_kind": classification,
+        "bottleneck_path": list(path),
         "current_replicas": int(current_replicas),
         "target_replicas": int(target_replicas),
+        "applied_scale_step": int(applied_scale_step),
         "slo_ms": round(float(slo_ms), 3),
         "p90_ms": round(float(p90_ms), 3),
         "rps": round(float(rps), 3),
         "runq_latency_ms": round(float(runq_ms), 3),
-        "runq_threshold_ms": round(float(runq_threshold_val), 3),
+        "runq_threshold_ms": round(float(runq_threshold_ms_value), 3),
         "downstream_latency_ms": round(float(downstream_ms), 3),
-        "timeout_rate": round(float(timeout_rate_val), 6),
-        "error_rate_5xx": round(float(error_rate_5xx_val), 6),
-        "local_cpu_pressure": bool(local_cpu_pressure),
-        "dependency_dominant": bool(dependency_dominant),
-        "low_demand": bool(low_demand),
-        "dominant_signal": str(dominant_signal or ""),
-        "pressure_streak": int(pressure_streak),
-        "severity": str(severity),
-        "estimated_target": int(estimated_target),
-        "applied_target": int(applied_target),
-        "warmup_active": bool(warmup_active),
     }
     serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     if TRACE_LOGS:
@@ -428,211 +654,70 @@ def emit_trace(
         pass
 
 
-def evaluate_service(service: str, metrics: dict, cfg: dict) -> None:
-    current_replicas, ready_replicas = read_replicas(service)
-
-    slo_ms = safe_float(cfg.get("slo", 0.0), 0.0)
+def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: Optional[dict] = None) -> Optional[dict]:
+    current_replicas, _ready_replicas = read_replicas(service)
     min_replicas = max(1, safe_int(cfg.get("min", 1), 1))
-    max_replicas = max(min_replicas, safe_int(cfg.get("max", 1), 1))
+    if current_replicas <= min_replicas:
+        record_low_demand_streak(service, False)
+        return None
 
-    short_p90_ms = preferred_p90_ms(metrics, service, long_window=False)
-    short_rps = preferred_rps(metrics, service, long_window=False)
-    p90_ms = short_p90_ms
-    rps = short_rps
-    runq_ms = runq_latency_ms(metrics, service, long_window=False)
-    downstream_ms = downstream_latency_ms(metrics, service, long_window=False)
-    local_ms = local_handling_latency_ms(metrics, service, long_window=False)
-    timeout_rate_val = max(timeout_rate(metrics, service, False), timeout_rate(metrics, service, True))
-    error_rate_5xx_val = max(error_rate_5xx(metrics, service, False), error_rate_5xx(metrics, service, True))
-    truth_active = truth_window_present(metric_obj(metrics, service), False)
+    if snapshot and (bool(snapshot.get("breached", False)) or safe_int(snapshot.get("streak", 0), 0) > 0):
+        record_low_demand_streak(service, False)
+        return None
+    if recent_breach_hold_active(service):
+        record_low_demand_streak(service, False)
+        return None
+    if cooldown_active(UPSCALE_COOLDOWNS, service):
+        record_low_demand_streak(service, False)
+        return None
+    warm, _desired, _ready = warmup_active(service)
+    if warm:
+        record_low_demand_streak(service, False)
+        return None
+    if not metric_fresh_enough_for_control(metrics, service):
+        record_low_demand_streak(service, False)
+        return None
+    if not demand_fresh_enough_for_downscale(metrics, service):
+        record_low_demand_streak(service, False)
+        return None
 
-    runq_threshold_val = runq_threshold_ms(metrics, service)
-    runq_low_threshold_val = runq_low_threshold_ms(metrics, service)
+    rps = preferred_rps(metrics, service)
+    runq_ms = runq_latency_ms(metrics, service)
+    runq_low = runq_ms <= runq_low_threshold_ms(metrics, service)
+    demand_per_replica = rps / max(current_replicas, 1)
+    clearly_low_total = rps < DOWNSCALE_RPS_THRESHOLD
+    clearly_low_per_replica = demand_per_replica < DOWNSCALE_RPS_PER_REPLICA_THRESHOLD
+    very_low_demand = rps < 0.1 or demand_per_replica < (DOWNSCALE_RPS_PER_REPLICA_THRESHOLD / 2.0)
+    sustained_low_demand = bool(runq_low and ((clearly_low_total and clearly_low_per_replica) or very_low_demand))
+    low_demand_streak = record_low_demand_streak(service, sustained_low_demand)
+    if not sustained_low_demand:
+        return None
+    if cooldown_active(DOWNSCALE_COOLDOWNS, service):
+        return None
+    if low_demand_streak < LOW_DEMAND_STREAK_REQUIRED:
+        return None
 
-    demand_per_replica = short_rps / max(1, current_replicas)
-    active = short_rps >= ACTIVE_RPS_THRESHOLD
-    low_demand = (
-        short_rps < DOWNSCALE_RPS_THRESHOLD
-        or demand_per_replica < DOWNSCALE_RPS_PER_REPLICA_THRESHOLD
-    )
-    slo_violated = truth_active and active and slo_ms > 0 and p90_ms > slo_ms
-    latency_ratio = p90_ms / max(slo_ms, 1.0) if slo_ms > 0 else 0.0
-    runq_ratio = runq_ms / max(runq_threshold_val, 0.001)
-    overload_symptoms = (
-        truth_active
-        and
-        active
-        and not low_demand
-        and (error_rate_5xx_val >= OVERLOAD_ERROR_RATE_THRESHOLD or timeout_rate_val >= OVERLOAD_TIMEOUT_RATE_THRESHOLD)
-    )
-    local_runq_pressure = runq_ms >= runq_threshold_val
-    overload_support = overload_symptoms and not local_runq_pressure
-    local_cpu_pressure = local_runq_pressure
-    dependency_dominant = (
-        slo_violated
-        and active
-        and not local_cpu_pressure
-        and p90_ms > 0
-        and downstream_ms > 0
-        and downstream_ms >= (p90_ms * DEPENDENCY_DOMINANCE_MIN_FRACTION)
-        and downstream_ms >= (local_ms * DEPENDENCY_DOMINANCE_RATIO if local_ms > 0 else downstream_ms)
-    )
-    runq_low = runq_ms <= clamp_min(runq_low_threshold_val, 0.0)
-    warmup_active = current_replicas > max(ready_replicas, 0) and (current_replicas - ready_replicas) >= max(1, math.ceil(current_replicas * WARMUP_READY_GAP_RATIO))
-    severity = classify_pressure_severity(
-        slo_violated=slo_violated,
-        active=active,
-        low_demand=low_demand,
-        p90_ms=p90_ms,
-        slo_ms=slo_ms,
-        runq_ms=runq_ms,
-        runq_threshold_ms=runq_threshold_val,
-        local_runq_pressure=local_runq_pressure,
-        overload_support=overload_support,
-    )
-    pressure_signal_active = slo_violated and active and not low_demand and not dependency_dominant and severity != "none"
-    pressure_streak = PRESSURE_STREAKS.get(service, 0)
-    if pressure_signal_active:
-        pressure_streak += 1
+    if (
+        low_demand_streak >= STRONG_DOWNSCALE_STREAK_REQUIRED
+        and (rps < 0.1 or demand_per_replica < (DOWNSCALE_RPS_PER_REPLICA_THRESHOLD / 2.0))
+    ):
+        step = 2
     else:
-        pressure_streak = 0
-    PRESSURE_STREAKS[service] = pressure_streak
+        step = 1
+    target = max(min_replicas, current_replicas - step)
+    if target >= current_replicas:
+        return None
 
-    dominant_signal = "none"
-    if local_runq_pressure and runq_ratio >= latency_ratio:
-        dominant_signal = "runq"
-    elif slo_violated:
-        dominant_signal = "latency"
-    elif overload_support:
-        dominant_signal = "overload"
-
-    decision = "no_scale"
-    decision_class = "stable"
-    reason = "stable"
-    target_replicas = current_replicas
-    estimated_target = current_replicas
-
-    if low_demand and runq_low and not local_cpu_pressure:
-        decision_class = "low_demand"
-        PRESSURE_STREAKS[service] = 0
-        if current_replicas <= min_replicas:
-            reason = "at_min"
-        elif cooldown_active(DOWNSCALE_COOLDOWNS, service):
-            reason = "cooldown_active"
-        else:
-            decision = "scale_down"
-            reason = "low_demand"
-            target_replicas = calculate_downscale_target(
-                current_replicas=current_replicas,
-                min_replicas=min_replicas,
-                rps=short_rps,
-                rps_per_replica=demand_per_replica,
-            )
-    elif active and not low_demand and not slo_violated:
-        PRESSURE_STREAKS[service] = 0
-        pressure_streak = 0
-        if overload_support and not local_runq_pressure and not dependency_dominant:
-            decision_class = "overload_uncertain"
-            reason = "awaiting_local_or_slo_evidence"
-        elif local_runq_pressure and not dependency_dominant:
-            decision_class = "pressure_pre_slo"
-            reason = "awaiting_slo_violation"
-        else:
-            decision_class = "stable"
-            reason = "under_slo"
-    elif slo_violated:
-        if active and not low_demand and (local_runq_pressure or overload_support) and not dependency_dominant:
-            decision_class = "local_cpu_pressure" if local_runq_pressure else "overload_guarded"
-            if current_replicas >= max_replicas:
-                reason = "at_max"
-            elif cooldown_active(UPSCALE_COOLDOWNS, service):
-                reason = "cooldown_active"
-            elif warmup_active and pressure_streak < PRESSURE_STREAK_FOR_SEVERE:
-                reason = "warmup_active"
-            else:
-                estimated_target = calculate_upscale_target(
-                    current_replicas=current_replicas,
-                    max_replicas=max_replicas,
-                    p90_ms=p90_ms,
-                    slo_ms=slo_ms,
-                    runq_ms=runq_ms,
-                    runq_threshold_ms=runq_threshold_val,
-                    rps=short_rps,
-                    demand_threshold=DOWNSCALE_RPS_PER_REPLICA_THRESHOLD,
-                )
-                target_replicas = cap_upscale_target(
-                    current_replicas=current_replicas,
-                    estimated_target=estimated_target,
-                    max_replicas=max_replicas,
-                    severity=severity,
-                    pressure_streak=pressure_streak,
-                    warmup_active=warmup_active,
-                )
-                if target_replicas > current_replicas:
-                    decision = "scale_up"
-                    reason = "local_cpu_pressure" if local_runq_pressure else "guarded_overload"
-                else:
-                    reason = "gated"
-        elif dependency_dominant and not local_cpu_pressure:
-            decision_class = "dependency_propagated"
-            reason = "dependency_propagated"
-        else:
-            decision_class = "insufficient_evidence"
-            reason = "insufficient_evidence"
-
-    if decision == "scale_up" and target_replicas != current_replicas:
-        patch_replicas(service, target_replicas)
-        set_cooldown(UPSCALE_COOLDOWNS, service, UPSCALE_COOLDOWN_S)
-        logger.info(
-            "SCALING %s up: %d -> %d (p90=%.3fms slo=%.3fms rps=%.2f runq=%.3fms dep=%.3fms)",
-            service,
-            current_replicas,
-            target_replicas,
-            p90_ms,
-            slo_ms,
-            rps,
-            runq_ms,
-            downstream_ms,
-        )
-    elif decision == "scale_down" and target_replicas != current_replicas:
-        patch_replicas(service, target_replicas)
-        set_cooldown(DOWNSCALE_COOLDOWNS, service, DOWNSCALE_COOLDOWN_S)
-        logger.info(
-            "SCALING %s down: %d -> %d (p90=%.3fms slo=%.3fms rps=%.2f runq=%.3fms)",
-            service,
-            current_replicas,
-            target_replicas,
-            p90_ms,
-            slo_ms,
-            rps,
-            runq_ms,
-        )
-
-    emit_trace(
-        service=service,
-        decision=decision,
-        decision_class=decision_class,
-        reason=reason,
-        current_replicas=current_replicas,
-        target_replicas=target_replicas,
-        p90_ms=p90_ms,
-        rps=rps,
-        runq_ms=runq_ms,
-        downstream_ms=downstream_ms,
-        timeout_rate_val=timeout_rate_val,
-        error_rate_5xx_val=error_rate_5xx_val,
-        slo_ms=slo_ms,
-        local_cpu_pressure=local_cpu_pressure,
-        dependency_dominant=dependency_dominant,
-        low_demand=low_demand,
-        runq_threshold_val=runq_threshold_val,
-        dominant_signal=dominant_signal,
-        pressure_streak=pressure_streak,
-        severity=severity,
-        estimated_target=estimated_target,
-        applied_target=target_replicas,
-        warmup_active=warmup_active,
-    )
+    return {
+        "service": service,
+        "current_replicas": current_replicas,
+        "target_replicas": target,
+        "step": current_replicas - target,
+        "rps": rps,
+        "runq_ms": runq_ms,
+        "reason": "low_demand_sustained",
+        "low_demand_streak": low_demand_streak,
+    }
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -645,6 +730,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             "last_error": READY_STATE.get("last_error", ""),
             "last_loop_ts": READY_STATE.get("last_loop_ts", 0.0),
             "target_namespace": TARGET_NAMESPACE,
+            "root_service": ROOT_SERVICE,
             "loop_seconds": LOOP_SECONDS,
         }
         if path == "/healthz":
@@ -678,13 +764,12 @@ def start_health_server():
 
 def main():
     logger.info(
-        "Runtime config: target_ns=%s loop=%.1fs active_rps=%.2f runq_fixed=%.2fms up_cd=%ds down_cd=%ds",
+        "Runtime config: target_ns=%s root=%s loop=%.1fs active_rps=%.2f runq_fixed=%.2fms",
         TARGET_NAMESPACE,
+        ROOT_SERVICE,
         LOOP_SECONDS,
         ACTIVE_RPS_THRESHOLD,
         RUNQ_FIXED_THRESHOLD_MS,
-        UPSCALE_COOLDOWN_S,
-        DOWNSCALE_COOLDOWN_S,
     )
     start_health_server()
 
@@ -692,9 +777,123 @@ def main():
         loop_start = time.time()
         try:
             slo_cfgs = get_slo_configs()
-            metrics = fetch_graph()
-            for service in sorted(slo_cfgs.keys()):
-                evaluate_service(service, metrics, slo_cfgs[service])
+            graph = fetch_graph_payload()
+            metrics = graph.get("metrics", {}) if isinstance(graph, dict) else {}
+            topology = graph.get("topology", {}) if isinstance(graph, dict) else {}
+            topology_meta = graph.get("topology_meta", {}) if isinstance(graph, dict) else {}
+
+            primary_actions: List[dict] = []
+            secondary_actions: List[dict] = []
+            downscale_actions: List[dict] = []
+
+            ordered_services = sorted(slo_cfgs.keys())
+            if ROOT_SERVICE in ordered_services:
+                ordered_services.remove(ROOT_SERVICE)
+                ordered_services.insert(0, ROOT_SERVICE)
+
+            for service in ordered_services:
+                cfg = slo_cfgs[service]
+                snapshot = breach_snapshot(service, metrics, cfg)
+                action, resolution = propose_upscale_action(snapshot, metrics, topology, topology_meta, slo_cfgs) if snapshot["breached"] else (None, None)
+
+                if action:
+                    if snapshot["priority"] == "primary":
+                        primary_actions.append(action)
+                    else:
+                        secondary_actions.append(action)
+                elif snapshot["breached"]:
+                    resolution_target = resolution.get("target", service)
+                    resolution_replicas, _resolution_ready = read_replicas(resolution_target)
+                    emit_trace(
+                        trigger_service=service,
+                        final_target_service=resolution_target,
+                        priority_type=snapshot["priority"],
+                        classification=resolution.get("classification", "unclear"),
+                        reason=resolution.get("reason", "hold"),
+                        path=list(resolution.get("path", [service])),
+                        decision="no_scale",
+                        current_replicas=resolution_replicas,
+                        target_replicas=resolution_replicas,
+                        p90_ms=snapshot["p90_ms"],
+                        slo_ms=snapshot["slo_ms"],
+                        rps=snapshot["rps"],
+                        runq_ms=runq_latency_ms(metrics, resolution_target),
+                        runq_threshold_ms_value=runq_threshold_ms(metrics, resolution_target),
+                        downstream_ms=dependency_latency_ms(metrics, service),
+                        applied_scale_step=0,
+                    )
+
+                downscale = propose_downscale_action(service, metrics, cfg, snapshot=snapshot)
+                if downscale:
+                    downscale_actions.append(downscale)
+
+            chosen = pick_best_action(primary_actions)
+            if not chosen:
+                chosen = pick_best_action(secondary_actions)
+
+            if chosen:
+                patch_replicas(chosen["target_service"], chosen["target_replicas"])
+                set_cooldown(UPSCALE_COOLDOWNS, chosen["target_service"], UPSCALE_COOLDOWN_S)
+                logger.info(
+                    "SCALING %s up for trigger %s: %d -> %d (priority=%s ratio=%.3f streak=%d path=%s)",
+                    chosen["target_service"],
+                    chosen["trigger_service"],
+                    chosen["current_replicas"],
+                    chosen["target_replicas"],
+                    chosen["priority"],
+                    chosen["ratio"],
+                    chosen["breach_streak"],
+                    " -> ".join(chosen["path"]),
+                )
+                emit_trace(
+                    trigger_service=chosen["trigger_service"],
+                    final_target_service=chosen["target_service"],
+                    priority_type=chosen["priority"],
+                    classification=chosen["classification"],
+                    reason=chosen["reason"],
+                    path=chosen["path"],
+                    decision="scale_up",
+                    current_replicas=chosen["current_replicas"],
+                    target_replicas=chosen["target_replicas"],
+                    p90_ms=chosen["p90_ms"],
+                    slo_ms=chosen["slo_ms"],
+                    rps=chosen["rps"],
+                    runq_ms=chosen["runq_ms"],
+                    runq_threshold_ms_value=chosen["runq_threshold_ms"],
+                    downstream_ms=chosen["downstream_ms"],
+                    applied_scale_step=chosen["step"],
+                )
+            elif downscale_actions:
+                chosen_downscale = sorted(downscale_actions, key=lambda row: (safe_float(row["rps"], 0.0), row["service"]))[0]
+                patch_replicas(chosen_downscale["service"], chosen_downscale["target_replicas"])
+                set_cooldown(DOWNSCALE_COOLDOWNS, chosen_downscale["service"], DOWNSCALE_COOLDOWN_S)
+                logger.info(
+                    "SCALING %s down: %d -> %d (rps=%.2f runq=%.3fms)",
+                    chosen_downscale["service"],
+                    chosen_downscale["current_replicas"],
+                    chosen_downscale["target_replicas"],
+                    chosen_downscale["rps"],
+                    chosen_downscale["runq_ms"],
+                )
+                emit_trace(
+                    trigger_service=chosen_downscale["service"],
+                    final_target_service=chosen_downscale["service"],
+                    priority_type=str(slo_cfgs[chosen_downscale["service"]].get("priority", "secondary")),
+                    classification="local",
+                    reason="low_demand",
+                    path=[chosen_downscale["service"]],
+                    decision="scale_down",
+                    current_replicas=chosen_downscale["current_replicas"],
+                    target_replicas=chosen_downscale["target_replicas"],
+                    p90_ms=preferred_truth_or_ebpf_p90(metrics, chosen_downscale["service"])[0],
+                    slo_ms=safe_float(slo_cfgs[chosen_downscale["service"]].get("slo", 0.0), 0.0),
+                    rps=chosen_downscale["rps"],
+                    runq_ms=chosen_downscale["runq_ms"],
+                    runq_threshold_ms_value=runq_threshold_ms(metrics, chosen_downscale["service"]),
+                    downstream_ms=dependency_latency_ms(metrics, chosen_downscale["service"]),
+                    applied_scale_step=chosen_downscale["step"],
+                )
+
             READY_STATE["ready"] = True
             READY_STATE["last_error"] = ""
         except Exception as exc:
