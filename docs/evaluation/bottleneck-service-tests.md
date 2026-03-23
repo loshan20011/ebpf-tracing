@@ -80,21 +80,18 @@ For each case:
 - pass/fail
 
 ## Result Location
-- per-case results: `results/functional/bottleneck_service/<case-name>/`
-- phase table: `results/functional/bottleneck_service/phase_summary.md`
+- per-case results: `results/bottleneck_service/<case-name>/`
+- phase table: `results/bottleneck_service/phase_summary.md`
 
 ## Run
 Single case:
 
 ```bash
-python3 src/scripts/evaluation/run_bottleneck_case.py \
-  --case-config src/scripts/evaluation/bottleneck_service/cases/BS1_local_cpu_service.json \
-  --output-root results/functional/bottleneck_service \
-  --mode observation
+bash src/scripts/bottleneck_service/run_bottleneck_service.sh BS1_local_cpu_service observation
 ```
 
 All bottleneck service cases:
 
 ```bash
-bash src/scripts/evaluation/run_bottleneck_phases.sh service observation
+bash src/scripts/bottleneck_service/run_bottleneck_service.sh all observation
 ```

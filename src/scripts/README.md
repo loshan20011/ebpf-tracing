@@ -1,0 +1,10 @@
+Script layout:
+
+- `benchmark/`: final Sock Shop benchmark runners and login-user setup helpers.
+- `metrics/`: baseline and path-validation scripts.
+- `bottleneck_identification/`: bottleneck-reason entrypoints and cases.
+- `bottleneck_service/`: bottleneck-service entrypoints and cases.
+- `control_loop/`: control-loop scripts and case files.
+- `common/`: shared helper scripts used by multiple script families.
+
+Use the `README.md` inside each folder for the expected commands.

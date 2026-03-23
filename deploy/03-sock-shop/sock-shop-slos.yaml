@@ -8,6 +8,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-front-end-slo
+  namespace: sock-shop
 spec:
   targetDeployment: front-end
   priority: primary
@@ -19,6 +20,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-catalogue-slo
+  namespace: sock-shop
 spec:
   targetDeployment: catalogue
   priority: secondary
@@ -30,6 +32,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-carts-slo
+  namespace: sock-shop
 spec:
   targetDeployment: carts
   priority: secondary
@@ -41,6 +44,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-orders-slo
+  namespace: sock-shop
 spec:
   targetDeployment: orders
   priority: secondary
@@ -52,6 +56,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-user-slo
+  namespace: sock-shop
 spec:
   targetDeployment: user
   priority: secondary
@@ -63,6 +68,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-payment-slo
+  namespace: sock-shop
 spec:
   targetDeployment: payment
   priority: secondary
@@ -74,6 +80,7 @@ apiVersion: autoscaling.fyp.io/v1alpha1
 kind: ServiceSLO
 metadata:
   name: sockshop-shipping-slo
+  namespace: sock-shop
 spec:
   targetDeployment: shipping
   priority: secondary

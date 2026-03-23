@@ -80,21 +80,18 @@ For each case:
 - pass/fail
 
 ## Result Location
-- per-case results: `results/functional/bottleneck_reason/<case-name>/`
-- phase table: `results/functional/bottleneck_reason/phase_summary.md`
+- per-case results: `results/bottleneck_identification/<case-name>/`
+- phase table: `results/bottleneck_identification/phase_summary.md`
 
 ## Run
 Single case:
 
 ```bash
-python3 src/scripts/evaluation/run_bottleneck_case.py \
-  --case-config src/scripts/evaluation/bottleneck_reason/cases/BR1_local_cpu_pressure.json \
-  --output-root results/functional/bottleneck_reason \
-  --mode observation
+bash src/scripts/bottleneck_identification/run_bottleneck_identification.sh BR1_local_cpu_pressure observation
 ```
 
 All bottleneck reason cases:
 
 ```bash
-bash src/scripts/evaluation/run_bottleneck_phases.sh reason observation
+bash src/scripts/bottleneck_identification/run_bottleneck_identification.sh all observation
 ```

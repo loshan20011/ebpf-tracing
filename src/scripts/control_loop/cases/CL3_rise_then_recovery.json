@@ -1,0 +1,110 @@
+{
+  "analysis": {
+    "expected_target_service": "",
+    "root_service": "front-end",
+    "slo_service": "front-end"
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "CL3_rise_then_recovery",
+  "collector_duration_seconds": 240,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 240,
+  "expected": {
+    "controller_behavior": "scale during the login-path rise, then hold replicas through early recovery and only downscale after calm demand is sustained",
+    "final_replica_behavior": "the controller should scale up on the rise and downscale only after the recovery stays calm long enough",
+    "max_oscillation_count": 1,
+    "max_time_above_slo_seconds": 130,
+    "max_time_to_first_action_seconds": 35,
+    "min_peak_replicas": 2,
+    "pattern_behavior": "rise then recovery should show login-path scale-up first and delayed safe downscale later",
+    "pass_fail_criteria": "pass if scale-up happens during the rise, downscale is delayed until recovery is sustained, and replicas do not flap immediately after breach",
+    "replica_trend": "up during pressure, flat during early recovery, then down later",
+    "require_delayed_downscale": true,
+    "require_scale_down": true,
+    "require_scale_up": true,
+    "slo_behavior": "the front-end SLO should improve before downscale begins, not just dip for one sample",
+    "slo_protection_result": "front-end should recover below SLO before downscale, not immediately after the first calm sample",
+    "target_service": "",
+    "traffic_pattern": "moderate login load, a sustained rise to high load, then a long calm recovery period"
+  },
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "interval_seconds": 5,
+  "max_in_flight": 2000,
+  "mode": "control",
+  "namespace": "sock-shop",
+  "phase_name": "control_loop",
+  "replica_bounds": {
+    "maxReplicas": 20,
+    "minReplicas": 1
+  },
+  "phases": [
+    {
+      "duration_seconds": 30,
+      "name": "steady_moderate",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 40.0
+    },
+    {
+      "duration_seconds": 45,
+      "name": "rise_high",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 250.0
+    },
+    {
+      "duration_seconds": 45,
+      "name": "hold_high",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 350.0
+    },
+    {
+      "duration_seconds": 120,
+      "name": "recovery_low",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 20.0
+    }
+  ],
+  "random_seed": 7,
+  "restart_after_reset": false,
+  "session_pool": 64,
+  "stats_window_seconds": 5.0,
+  "service_slos": {
+    "sockshop-user-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "secondary",
+      "sloLatency": 150.0,
+      "targetDeployment": "user"
+    },
+    "sockshop-front-end-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 200.0,
+      "targetDeployment": "front-end"
+    }
+  },
+  "routes": {
+    "login_get": {
+      "method": "GET",
+      "path": "/login"
+    }
+  },
+  "stabilization_seconds": 30,
+  "system_namespace": "thrive-scale"
+}

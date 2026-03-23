@@ -1,0 +1,36 @@
+I checked the live front-end with curl, and these are the working endpoints right now:
+
+Working and stable:
+
+/ -> 200
+/catalogue -> 200
+/cart -> 200
+/category.html -> 200
+/basket.html -> 200
+/customer-orders.html -> 200
+/cards -> 200
+Not good for direct benchmark use:
+
+/login -> 401
+/orders -> 500 with User not logged in.
+/register -> 404
+I also did 30 repeated curls per route, and these stayed stable:
+
+/catalogue: 30/30 -> 200
+/cart: 30/30 -> 200
+/: 30/30 -> 200
+/basket.html: 30/30 -> 200
+/category.html: 30/30 -> 200
+/cards: 30/30 -> 200
+So the main takeaway is:
+
+GET /login is not a usable public load route in this deployment
+GET /orders is also not usable without auth
+the clean API routes we can rely on are mainly:
+/catalogue
+/cart
+Best practical choice now:
+
+use /cart for downstream-path tests
+keep /catalogue as a secondary reference only if we specifically want to study slow rollout behavior
+do not use /login unless we implement a proper authenticated flow

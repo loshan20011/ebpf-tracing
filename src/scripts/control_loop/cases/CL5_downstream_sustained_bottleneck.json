@@ -1,0 +1,102 @@
+{
+  "analysis": {
+    "expected_target_service": "user",
+    "root_service": "front-end",
+    "slo_service": "front-end"
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "CL5_downstream_sustained_bottleneck",
+  "collector_duration_seconds": 180,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 180,
+  "expected": {
+    "controller_behavior": "the controller should repeatedly target the login-path downstream service rather than mis-scaling only the root front-end",
+    "final_replica_behavior": "the controller should keep scaling the downstream login path when it remains the dominant bottleneck path",
+    "max_oscillation_count": 1,
+    "max_root_target_count": 2,
+    "max_time_above_slo_seconds": 120,
+    "min_expected_target_ratio": 0.5,
+    "min_peak_replicas": 2,
+    "pattern_behavior": "sustained downstream login pressure should repeatedly point at the real bottleneck child service",
+    "pass_fail_criteria": "pass if most actions target the downstream child, root-only targeting stays limited, and the final replica count is stable",
+    "replica_trend": "downstream login-path service should climb while unrelated services avoid repeated scaling",
+    "require_scale_up": true,
+    "require_stable_final_replica": true,
+    "slo_behavior": "front-end SLO should improve as the downstream login path gets capacity, without repeated root mis-scaling",
+    "slo_protection_result": "front-end SLO should improve while scale decisions stay focused on the downstream login path",
+    "target_service": "user",
+    "traffic_pattern": "moderate login traffic, a rising login-path load, then sustained high downstream login pressure"
+  },
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "interval_seconds": 5,
+  "max_in_flight": 1500,
+  "mode": "control",
+  "namespace": "sock-shop",
+  "phase_name": "control_loop",
+  "replica_bounds": {
+    "maxReplicas": 20,
+    "minReplicas": 1
+  },
+  "phases": [
+    {
+      "duration_seconds": 30,
+      "name": "steady_moderate",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 40.0
+    },
+    {
+      "duration_seconds": 40,
+      "name": "rise",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 180.0
+    },
+    {
+      "duration_seconds": 110,
+      "name": "sustained_high",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 260.0
+    }
+  ],
+  "random_seed": 7,
+  "restart_after_reset": false,
+  "session_pool": 48,
+  "stats_window_seconds": 5.0,
+  "service_slos": {
+    "sockshop-user-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "secondary",
+      "sloLatency": 150.0,
+      "targetDeployment": "user"
+    },
+    "sockshop-front-end-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 200.0,
+      "targetDeployment": "front-end"
+    }
+  },
+  "routes": {
+    "login_get": {
+      "method": "GET",
+      "path": "/login"
+    }
+  },
+  "stabilization_seconds": 30,
+  "system_namespace": "thrive-scale"
+}

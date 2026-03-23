@@ -67,7 +67,9 @@ spec:
           - name: LOOP_SECONDS
             value: "10"
           - name: TARGET_NAMESPACE
-            value: "thrive-demo"
+            value: "sock-shop"
+          - name: ROOT_SERVICE
+            value: "front-end"
           - name: ACTIVE_RPS_THRESHOLD
             value: "0.5"
           - name: DOWNSCALE_RPS_THRESHOLD

@@ -114,6 +114,122 @@ patch_deployments() {
     -p='[{"op":"replace","path":"/spec/template/spec/containers/0/securityContext","value":{"runAsUser":0}}]' >/dev/null
 }
 
+patch_benchmark_readiness() {
+  "$KUBECTL" patch deploy/user -n "$NAMESPACE" --type=merge -p "$(cat <<'EOF'
+{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "user",
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 5,
+              "timeoutSeconds": 2,
+              "failureThreshold": 6
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 60,
+              "periodSeconds": 15,
+              "timeoutSeconds": 2,
+              "failureThreshold": 3
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+)" >/dev/null
+
+  "$KUBECTL" patch deploy/carts -n "$NAMESPACE" --type=merge -p "$(cat <<'EOF'
+{
+  "spec": {
+    "minReadySeconds": 15,
+    "strategy": {
+      "type": "RollingUpdate",
+      "rollingUpdate": {
+        "maxSurge": 1,
+        "maxUnavailable": 0
+      }
+    },
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "carts",
+            "args": [
+              "-cp",
+              "/opt/app.jar",
+              "-Xms32m",
+              "-Xmx96m",
+              "-XX:+UseG1GC",
+              "-Djava.security.egd=file:/dev/urandom",
+              "-Dspring.zipkin.enabled=false",
+              "-Dloader.path=/opt/lib",
+              "org.springframework.boot.loader.PropertiesLauncher",
+              "--port=8080"
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "300m",
+                "memory": "512Mi"
+              },
+              "limits": {
+                "cpu": "600m",
+                "memory": "1Gi"
+              }
+            },
+            "startupProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 20,
+              "periodSeconds": 5,
+              "timeoutSeconds": 5,
+              "failureThreshold": 48
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 0,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 6
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 0,
+              "periodSeconds": 20,
+              "timeoutSeconds": 5,
+              "failureThreshold": 6
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+)" >/dev/null
+}
+
 expose_frontend() {
   "$KUBECTL" patch svc front-end -n "$NAMESPACE" --type=merge \
     -p "{\"spec\":{\"type\":\"NodePort\",\"ports\":[{\"port\":80,\"targetPort\":8079,\"protocol\":\"TCP\",\"nodePort\":${FRONTEND_NODE_PORT}}]}}" >/dev/null
@@ -156,6 +272,7 @@ main() {
   install_base_resources
   normalize_pvcs
   patch_deployments
+  patch_benchmark_readiness
   expose_frontend
   restart_and_wait
   show_summary

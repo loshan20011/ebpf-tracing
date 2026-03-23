@@ -1,0 +1,132 @@
+{
+  "analysis": {
+    "expected_target_service": "",
+    "root_service": "front-end",
+    "slo_service": "front-end"
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "CL4_bursty_repeated_spikes",
+  "collector_duration_seconds": 180,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 180,
+  "expected": {
+    "controller_behavior": "windows should smooth repeated login-path spikes so the controller avoids chasing every burst with a fresh scale action",
+    "final_replica_behavior": "replicas may rise, but should not flap up and down on every short burst",
+    "max_oscillation_count": 2,
+    "max_scale_action_count": 8,
+    "max_time_above_slo_seconds": 95,
+    "min_peak_replicas": 2,
+    "pattern_behavior": "repeated login-path spikes should be smoothed by short and sustain windows to avoid thrashing",
+    "pass_fail_criteria": "pass if repeated spikes do not cause thrashing, action count stays bounded, and the SLO remains mostly protected",
+    "replica_trend": "limited upward adjustment is acceptable, but repeated up/down flapping is not",
+    "require_scale_up": true,
+    "slo_behavior": "occasional short breach is acceptable, but repeated long violations are not",
+    "slo_protection_result": "front-end SLO should be mostly protected without repeated oscillatory actions",
+    "target_service": "",
+    "traffic_pattern": "alternating calm and sharp login spikes followed by a final settle period"
+  },
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "interval_seconds": 5,
+  "max_in_flight": 2000,
+  "mode": "control",
+  "namespace": "sock-shop",
+  "phase_name": "control_loop",
+  "replica_bounds": {
+    "maxReplicas": 20,
+    "minReplicas": 1
+  },
+  "phases": [
+    {
+      "duration_seconds": 20,
+      "name": "calm_1",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 40.0
+    },
+    {
+      "duration_seconds": 20,
+      "name": "spike_1",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 300.0
+    },
+    {
+      "duration_seconds": 20,
+      "name": "calm_2",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 40.0
+    },
+    {
+      "duration_seconds": 20,
+      "name": "spike_2",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 300.0
+    },
+    {
+      "duration_seconds": 20,
+      "name": "calm_3",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 40.0
+    },
+    {
+      "duration_seconds": 20,
+      "name": "spike_3",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 300.0
+    },
+    {
+      "duration_seconds": 60,
+      "name": "settle",
+      "route_mix": {
+        "login_get": 1.0
+      },
+      "rps": 30.0
+    }
+  ],
+  "random_seed": 7,
+  "restart_after_reset": false,
+  "session_pool": 64,
+  "stats_window_seconds": 5.0,
+  "service_slos": {
+    "sockshop-user-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "secondary",
+      "sloLatency": 150.0,
+      "targetDeployment": "user"
+    },
+    "sockshop-front-end-slo": {
+      "maxReplicas": 20,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 200.0,
+      "targetDeployment": "front-end"
+    }
+  },
+  "routes": {
+    "login_get": {
+      "method": "GET",
+      "path": "/login"
+    }
+  },
+  "stabilization_seconds": 30,
+  "system_namespace": "thrive-scale"
+}

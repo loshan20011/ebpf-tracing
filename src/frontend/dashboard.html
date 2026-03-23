@@ -89,6 +89,7 @@
       min-width: 0;
     }
     .panel-wide { grid-column: 1 / -1; }
+    .bench-hidden { display: none !important; }
     .panel h3 {
       margin: 0 0 8px;
       font-size: 15px;
@@ -323,7 +324,7 @@
     <div id="cy"></div>
     <aside class="side">
       <section class="panel">
-        <h3>Node Status</h3>
+        <h3>Service Card</h3>
         <div id="nodeEmpty" class="dim">Select a node from the graph.</div>
         <div id="nodeData" style="display:none">
           <div class="kv"><span class="dim">Service</span><strong id="nName">-</strong></div>
@@ -362,16 +363,12 @@
             <strong id="nThrottle">-</strong>
           </div>
           <div class="kv">
-            <span class="dim label-inline">CPU Throttle Long<span class="hint" title="Longer-window CPU throttling evidence. This helps show recent throttling even after the short burst starts fading.">i</span></span>
-            <strong id="nThrottleLong">-</strong>
-          </div>
-          <div class="kv">
             <span class="dim label-inline">Health<span class="hint" title="High-level state derived from SLO status and recent activity.">i</span></span>
             <strong id="nHealth">-</strong>
           </div>
           <div class="kv">
-            <span class="dim label-inline">Bottleneck Hint<span class="hint" title="Dashboard hint based on latency-path signals first, then CPU corroboration using RunQ p90 plus CPU throttling.">i</span></span>
-            <strong id="nTag">-</strong>
+            <span class="dim label-inline">Controller Decision<span class="hint" title="Latest controller trace for this service. When available, the dashboard prefers the controller's own reason and hold/scale decision over a local UI heuristic.">i</span></span>
+            <strong id="nDecision">-</strong>
           </div>
         </div>
       </section>
@@ -384,6 +381,36 @@
         <div class="kv"><span class="dim">Traffic Base URL</span><strong id="ctxBase">-</strong></div>
         <div id="ctxNote" class="msg dim"></div>
         <div id="routeRows" class="route-list"></div>
+      </section>
+
+      <section class="panel">
+        <h3>Active Bottleneck</h3>
+        <div class="kv"><span class="dim">Trigger Service</span><strong id="abTrigger">-</strong></div>
+        <div class="kv"><span class="dim">Traversal Path</span><strong id="abPath">-</strong></div>
+        <div class="kv"><span class="dim">Final Service</span><strong id="abFinalService">-</strong></div>
+        <div class="kv"><span class="dim">Bottleneck Type</span><strong id="abType">-</strong></div>
+      </section>
+
+      <section class="panel">
+        <h3>Traffic Pattern</h3>
+        <div class="kv"><span class="dim">Short RPS</span><strong id="tpShortRps">-</strong></div>
+        <div class="kv"><span class="dim">Long RPS</span><strong id="tpLongRps">-</strong></div>
+        <div class="kv"><span class="dim">Pattern</span><strong id="tpPattern">-</strong></div>
+        <div class="kv"><span class="dim">SLO Status</span><strong id="tpStatus">-</strong></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Replica Decision</h3>
+        <div class="kv"><span class="dim">Current Replicas</span><strong id="rdCurrent">-</strong></div>
+        <div class="kv"><span class="dim">Target Replicas</span><strong id="rdTarget">-</strong></div>
+        <div class="kv"><span class="dim">Proposed Step</span><strong id="rdStep">-</strong></div>
+        <div class="kv"><span class="dim">Actual Applied Change</span><strong id="rdActual">-</strong></div>
+        <div class="kv"><span class="dim">Target RPS / Replica</span><strong id="rdTargetRpsReplica">-</strong></div>
+        <div class="kv"><span class="dim">Desired Replicas From Traffic</span><strong id="rdDesiredTraffic">-</strong></div>
+        <div class="kv"><span class="dim">Downscale Step</span><strong id="rdDownscaleStep">-</strong></div>
+        <div class="kv"><span class="dim">Downscale Reason</span><strong id="rdDownscaleReason">-</strong></div>
+        <div class="kv"><span class="dim">Decision Reason</span><strong id="rdReason">-</strong></div>
+        <div class="kv"><span class="dim">Blocked By</span><strong id="rdBlocked">-</strong></div>
       </section>
 
       <section class="panel panel-wide">
@@ -463,13 +490,13 @@
         <div class="msg dim">Control actions send the optional operator identity and token headers to the aggregator.</div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Alerts</h3>
         <div id="alertsEmpty" class="dim">No active alerts.</div>
         <div id="alertsRows" class="alert-list" style="display:none"></div>
       </section>
 
-      <section class="panel panel-wide" id="support">
+      <section class="panel panel-wide bench-hidden" id="support">
         <h3>Support Desk</h3>
         <div class="ctrl-grid">
           <label>Title
@@ -526,15 +553,16 @@
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Node</th>
-                <th>Root P90</th>
-                <th>RunQ</th>
-                <th>RunQ Thr</th>
-                <th>Root RPS</th>
-                <th>Downstream</th>
-                <th>Bottleneck</th>
-                <th>Kind</th>
-                <th>Action</th>
+                <th>Trigger</th>
+                <th>Path</th>
+                <th>Final Service</th>
+                <th>Type</th>
+                <th>Pattern</th>
+                <th>Short/Long RPS</th>
+                <th>Replicas</th>
+                <th>Desired</th>
+                <th>Decision</th>
+                <th>Blocked</th>
               </tr>
             </thead>
             <tbody id="traceRows"></tbody>
@@ -542,7 +570,7 @@
         </div>
       </section>
 
-      <section class="panel panel-wide">
+      <section class="panel panel-wide bench-hidden">
         <h3>Audit Log</h3>
         <div class="trace-wrap">
           <table class="trace-table">
@@ -574,10 +602,13 @@
     const AUDIT_URL = "/api/audit";
     const SUPPORT_TICKETS_URL = "/api/support/tickets";
     const RUNQ_FALLBACK_THRESHOLD_MS = 3;
+    const TRACE_FRESH_MS = 30000;
     let selectedNodeId = null;
     let lastTopologySignature = "";
     let controlState = { routes: [], trafficRoutes: [], trafficBaseUrl: "", benchmark: {}, slos: {}, deployments: [] };
     let latestGraphData = { metrics: {}, topology: {}, topology_meta: {} };
+    let latestTraceByService = {};
+    let latestActiveTrace = null;
     let latestTickets = [];
 
     const cy = cytoscape({
@@ -632,7 +663,61 @@
       return Number(metric.p90_latency || metric.latency || truthP90 || 0);
     }
 
-    function classify(metric) {
+    function reasonTagFromTrace(trace) {
+      const finalReason = String(trace?.final_reason || trace?.bottleneck_kind || "").trim();
+      if (finalReason === "downstream_delay") return "DOWNSTREAM DELAY";
+      if (finalReason === "external_or_unmonitored_delay") return "EXTERNAL / UNMONITORED";
+      if (finalReason === "local_bottleneck") return "LOCAL BOTTLENECK";
+      return "";
+    }
+
+    function blockedByLabel(blockedBy) {
+      const raw = String(blockedBy || "").trim();
+      if (!raw) return "";
+      return raw.replaceAll("_", " ").toUpperCase();
+    }
+
+    function traceDecisionLabel(trace) {
+      if (!trace) return "";
+      const decision = String(trace.decision || "").trim();
+      if (decision === "scale_up") return `SCALING TO ${Number(trace.target_replicas || 0)}`;
+      if (decision === "scale_down") return `DOWNSCALING TO ${Number(trace.target_replicas || 0)}`;
+      const blocked = blockedByLabel(trace.blocked_by);
+      if (decision === "no_scale" && blocked) return `HOLD: ${blocked}`;
+      if (decision === "no_scale") return "HOLD";
+      return "";
+    }
+
+    function tracePathText(trace) {
+      const path = trace?.traversal_path || trace?.bottleneck_path || [];
+      if (Array.isArray(path) && path.length) return path.join(" -> ");
+      return String(trace?.final_bottleneck_service || trace?.service || trace?.node || "-");
+    }
+
+    function renderActiveDecision() {
+      const trace = latestActiveTrace;
+      const blocked = blockedByLabel(trace?.blocked_by);
+      document.getElementById("abTrigger").textContent = trace?.trigger_service || "-";
+      document.getElementById("abPath").textContent = trace ? tracePathText(trace) : "-";
+      document.getElementById("abFinalService").textContent = trace?.final_bottleneck_service || trace?.service || trace?.node || "-";
+      document.getElementById("abType").textContent = trace?.final_bottleneck_type || trace?.final_reason || "-";
+      document.getElementById("tpShortRps").textContent = trace ? Number(trace.short_rps || 0).toFixed(2) : "-";
+      document.getElementById("tpLongRps").textContent = trace ? Number(trace.long_rps || 0).toFixed(2) : "-";
+      document.getElementById("tpPattern").textContent = trace?.traffic_pattern || "-";
+      document.getElementById("tpStatus").textContent = trace ? (trace.trigger_breached ? "breached" : (trace.under_pressure ? "near_breach" : "healthy")) : "-";
+      document.getElementById("rdCurrent").textContent = trace ? String(Number(trace.current_replicas || 0)) : "-";
+      document.getElementById("rdTarget").textContent = trace ? String(Number(trace.target_replicas || 0)) : "-";
+      document.getElementById("rdStep").textContent = trace ? String(Number(trace.proposed_step || trace.applied_scale_step || 0)) : "-";
+      document.getElementById("rdActual").textContent = trace ? String(Number(trace.actual_replica_change || 0)) : "-";
+      document.getElementById("rdTargetRpsReplica").textContent = trace ? Number(trace.target_rps_per_replica || 0).toFixed(2) : "-";
+      document.getElementById("rdDesiredTraffic").textContent = trace ? String(Number(trace.desired_replicas_from_traffic || 0)) : "-";
+      document.getElementById("rdDownscaleStep").textContent = trace ? String(Number(trace.downscale_step || 0)) : "-";
+      document.getElementById("rdDownscaleReason").textContent = trace?.downscale_reason || "-";
+      document.getElementById("rdReason").textContent = trace?.reason || "-";
+      document.getElementById("rdBlocked").textContent = blocked || "-";
+    }
+
+    function classify(serviceName, metric) {
       const p90 = preferredP90(metric);
       const runq = Number(metric.runq_p90_latency || metric.avg_runq_latency || 0);
       const runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
@@ -648,11 +733,22 @@
       const violating = latencyValid && !inactive && slo > 0 && p90 > slo;
       let actionTag = "NO ACTION";
       if (inactive) actionTag = "IDLE";
-      else if (violating && dependencyDelay >= Math.max(serviceHandling, externalWait)) actionTag = "DOWNSTREAM BOTTLENECK";
+      else if (violating && dependencyDelay >= Math.max(serviceHandling, externalWait)) actionTag = "DOWNSTREAM DELAY";
       else if (violating && externalWait >= Math.max(serviceHandling, dependencyDelay)) actionTag = "EXTERNAL / UNMONITORED";
-      else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0) && runq >= runqThreshold && cpuThrottle >= 0.10) actionTag = "CPU SCALEABLE";
-      else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0)) actionTag = "LOCAL NON-CPU / UNCLEAR";
-      return { p90, latencyValid, runq, runqThreshold, cpuThrottle, cpuThrottleLong, serviceHandling, dependencyDelay, externalWait, slo, rps, inactive, violating, actionTag };
+      else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0)) actionTag = "LOCAL BOTTLENECK";
+      let controllerDecision = "";
+      let controllerReason = "";
+      const trace = latestTraceByService[serviceName];
+      const traceTs = Number(trace?.ts_unix_ms || 0);
+      if (trace && traceTs > 0 && (Date.now() - traceTs) <= TRACE_FRESH_MS) {
+        controllerReason = reasonTagFromTrace(trace);
+        controllerDecision = traceDecisionLabel(trace);
+        if (controllerReason) actionTag = controllerReason;
+      }
+      return {
+        p90, latencyValid, runq, runqThreshold, cpuThrottle, cpuThrottleLong, serviceHandling, dependencyDelay,
+        externalWait, slo, rps, inactive, violating, actionTag, controllerDecision, controllerReason
+      };
     }
 
     function nodeLabelLegacy(id, s) {
@@ -825,7 +921,7 @@
     function nodeLabel(id, s) {
       const sloText = s.slo > 0 ? s.slo.toFixed(1) : "-";
       const p90Text = s.latencyValid ? `${s.p90.toFixed(1)}ms` : "N/A";
-      return `${id}\nP90:${p90Text} / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\nThr S:${s.cpuThrottle.toFixed(2)} | L:${s.cpuThrottleLong.toFixed(2)}\n${s.actionTag}`;
+      return `${id}\nP90:${p90Text} / SLO:${sloText}\nRPS:${s.rps.toFixed(2)} | RunQ:${s.runq.toFixed(1)}\nThrottle:${s.cpuThrottle.toFixed(2)}\n${s.actionTag}`;
     }
 
     function updateNodePanel(id, metric, s) {
@@ -838,7 +934,6 @@
       document.getElementById("nP90").textContent = s.latencyValid ? s.p90.toFixed(3) : "N/A";
       document.getElementById("nRunq").textContent = `${s.runq.toFixed(3)} / ${s.runqThreshold.toFixed(3)}`;
       document.getElementById("nThrottle").textContent = s.cpuThrottle.toFixed(4);
-      document.getElementById("nThrottleLong").textContent = s.cpuThrottleLong.toFixed(4);
       document.getElementById("nHandle").textContent = s.serviceHandling.toFixed(3);
       document.getElementById("nDep").textContent = s.dependencyDelay.toFixed(3);
       document.getElementById("nExternal").textContent = s.externalWait.toFixed(3);
@@ -857,16 +952,7 @@
         health.className = "healthy";
       }
 
-      const tag = document.getElementById("nTag");
-      tag.textContent = s.actionTag;
-      tag.className =
-        s.actionTag === "CPU SCALEABLE"
-          ? "starved"
-          : (
-              s.actionTag === "DOWNSTREAM BOTTLENECK" || s.actionTag === "EXTERNAL / UNMONITORED" || s.actionTag === "LOCAL NON-CPU / UNCLEAR"
-                ? "blocked"
-                : "healthy"
-            );
+      document.getElementById("nDecision").textContent = s.controllerDecision || "No recent controller trace";
     }
 
     function renderGraph(data) {
@@ -878,7 +964,7 @@
 
       // Upsert nodes and update styles/data.
       for (const [svc, metric] of Object.entries(metrics)) {
-        const s = classify(metric);
+        const s = classify(svc, metric);
         if (s.inactive) inactive++;
         else if (s.violating) violating++;
         else healthy++;
@@ -957,39 +1043,48 @@
     }
 
     function renderTraces(data) {
-      const rows = (data.traces || []).slice(0, 100);
+      const rows = (data.traces || [])
+        .slice()
+        .sort((a, b) => Number(b.ts_unix_ms || 0) - Number(a.ts_unix_ms || 0))
+        .slice(0, 60);
+      latestTraceByService = {};
+      latestActiveTrace = rows.length ? rows[0] : null;
+      for (const t of rows) {
+        const service = String(t.service || t.node || "").trim();
+        if (!service) continue;
+        if (!latestTraceByService[service] || Number(t.ts_unix_ms || 0) > Number(latestTraceByService[service].ts_unix_ms || 0)) {
+          latestTraceByService[service] = t;
+        }
+      }
       const tbody = document.getElementById("traceRows");
       tbody.innerHTML = "";
       for (const t of rows) {
         const ts = t.ts_unix_ms ? new Date(t.ts_unix_ms).toLocaleTimeString() : "--";
-        const p90s = Number(t.p90_ms || 0);
-        const runq = Number(t.runq_latency_ms || 0);
-        const runqThr = Number(t.runq_threshold_ms || 0);
-        const rpss = Number(t.rps || 0);
-        const downstream = Number(t.downstream_latency_ms || 0);
-        const path = Array.isArray(t.bottleneck_path) && t.bottleneck_path.length ? t.bottleneck_path.join(" -> ") : (t.node || "-");
+        const path = tracePathText(t);
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${ts}</td>
-          <td>${t.node || "-"}</td>
-          <td>${p90s.toFixed(2)}</td>
-          <td>${runq.toFixed(2)}</td>
-          <td>${runqThr.toFixed(2)}</td>
-          <td>${rpss.toFixed(2)}</td>
-          <td>${downstream.toFixed(2)}</td>
+          <td>${escapeHtml(t.trigger_service || "-")}</td>
           <td>${escapeHtml(path)}</td>
-          <td>${escapeHtml(t.bottleneck_kind || "-")}</td>
-          <td>${t.action || "-"}</td>
+          <td>${escapeHtml(t.final_bottleneck_service || t.service || t.node || "-")}</td>
+          <td>${escapeHtml(t.final_bottleneck_type || t.final_reason || "-")}</td>
+          <td>${escapeHtml(t.traffic_pattern || "-")}</td>
+          <td>${Number(t.short_rps || 0).toFixed(1)} / ${Number(t.long_rps || 0).toFixed(1)}</td>
+          <td>${Number(t.current_replicas || 0)} -> ${Number(t.target_replicas || 0)}</td>
+          <td>${Number(t.desired_replicas_from_traffic || 0)}</td>
+          <td>${escapeHtml(traceDecisionLabel(t) || t.action || "-")}</td>
+          <td>${escapeHtml(blockedByLabel(t.blocked_by) || "-")}</td>
         `;
         tbody.appendChild(tr);
       }
+      renderActiveDecision();
     }
 
     function buildAlerts(data) {
       const alerts = [];
       const metrics = data.metrics || {};
       for (const [svc, metric] of Object.entries(metrics)) {
-        const s = classify(metric);
+        const s = classify(svc, metric);
         const active = Boolean(metric.active_short || metric.evaluable_for_slo || !s.inactive);
         const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
         const depLatency = Number(metric.dependency_attributed_latency || 0) + Number(metric.external_wait_latency || 0);
@@ -1274,12 +1369,11 @@
           fetch(graphUrl(), { cache: "no-store" }),
           fetch(TRACE_URL, { cache: "no-store" })
         ]);
+        if (traceRes.ok) renderTraces(await traceRes.json());
         if (graphRes.ok) {
           latestGraphData = await graphRes.json();
           renderGraph(latestGraphData);
-          renderAlerts(latestGraphData);
         }
-        if (traceRes.ok) renderTraces(await traceRes.json());
       } catch (err) {
         console.error("poll error", err);
       }
@@ -1306,10 +1400,6 @@
     setInterval(poll, 2000);
     fetchControlState();
     setInterval(fetchControlState, 10000);
-    refreshAudit();
-    setInterval(refreshAudit, 6000);
-    refreshTickets();
-    setInterval(refreshTickets, 10000);
     document.getElementById("toggleInfra").addEventListener("change", poll);
     document.getElementById("sloDeployment").addEventListener("change", syncSloFormFromSelection);
     document.getElementById("ticketId").addEventListener("change", () => {
