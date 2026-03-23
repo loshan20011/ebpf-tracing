@@ -1,0 +1,15 @@
+{
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "SSBR2_downstream_delay_customers",
+  "client_p90_latency_ms": 324.319,
+  "duration_seconds": 60.237,
+  "ended_at_unix_ms": 1774293926879,
+  "failed_responses": 0,
+  "route_counts": {
+    "customers_get": 217
+  },
+  "sent_requests": 217,
+  "started_at_unix_ms": 1774293866643,
+  "success_rps": 3.602,
+  "successful_responses": 217
+}

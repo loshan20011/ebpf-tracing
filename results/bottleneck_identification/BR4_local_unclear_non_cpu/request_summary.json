@@ -1,0 +1,15 @@
+{
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BR4_local_unclear_non_cpu",
+  "client_p90_latency_ms": 82.037,
+  "duration_seconds": 90.004,
+  "ended_at_unix_ms": 1774291914233,
+  "failed_responses": 0,
+  "route_counts": {
+    "io_edge": 900
+  },
+  "sent_requests": 900,
+  "started_at_unix_ms": 1774291824228,
+  "success_rps": 10.0,
+  "successful_responses": 900
+}

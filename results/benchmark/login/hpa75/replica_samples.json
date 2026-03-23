@@ -1,0 +1,1426 @@
+[
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 1,
+      "desired": 1
+    },
+    "t_rel_s": 0.192,
+    "ts_unix_ms": 1774282327105,
+    "user": {
+      "available": 1,
+      "desired": 1
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 1,
+      "desired": 1
+    },
+    "t_rel_s": 10.317,
+    "ts_unix_ms": 1774282337230,
+    "user": {
+      "available": 1,
+      "desired": 1
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 1,
+      "desired": 1
+    },
+    "t_rel_s": 20.444,
+    "ts_unix_ms": 1774282347357,
+    "user": {
+      "available": 1,
+      "desired": 1
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 1,
+      "desired": 4
+    },
+    "t_rel_s": 30.66,
+    "ts_unix_ms": 1774282357573,
+    "user": {
+      "available": 1,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 4,
+      "desired": 4
+    },
+    "t_rel_s": 40.783,
+    "ts_unix_ms": 1774282367696,
+    "user": {
+      "available": 1,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 50.912,
+    "ts_unix_ms": 1774282377825,
+    "user": {
+      "available": 1,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 61.038,
+    "ts_unix_ms": 1774282387951,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 71.163,
+    "ts_unix_ms": 1774282398077,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 81.363,
+    "ts_unix_ms": 1774282408276,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 91.572,
+    "ts_unix_ms": 1774282418485,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 101.7,
+    "ts_unix_ms": 1774282428613,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 111.827,
+    "ts_unix_ms": 1774282438740,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 122.575,
+    "ts_unix_ms": 1774282449488,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 132.713,
+    "ts_unix_ms": 1774282459626,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 1
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 5
+    },
+    "t_rel_s": 142.842,
+    "ts_unix_ms": 1774282469755,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 5,
+      "desired": 8
+    },
+    "t_rel_s": 152.972,
+    "ts_unix_ms": 1774282479885,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 163.103,
+    "ts_unix_ms": 1774282490016,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 173.254,
+    "ts_unix_ms": 1774282500167,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 183.384,
+    "ts_unix_ms": 1774282510298,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 193.513,
+    "ts_unix_ms": 1774282520426,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 203.649,
+    "ts_unix_ms": 1774282530562,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 213.779,
+    "ts_unix_ms": 1774282540692,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 224.112,
+    "ts_unix_ms": 1774282551025,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 234.573,
+    "ts_unix_ms": 1774282561487,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 244.734,
+    "ts_unix_ms": 1774282571647,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 1,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 254.888,
+    "ts_unix_ms": 1774282581801,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 265.047,
+    "ts_unix_ms": 1774282591960,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 2
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 275.18,
+    "ts_unix_ms": 1774282602093,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 285.574,
+    "ts_unix_ms": 1774282612487,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 8
+    },
+    "t_rel_s": 295.712,
+    "ts_unix_ms": 1774282622625,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 8,
+      "desired": 10
+    },
+    "t_rel_s": 305.855,
+    "ts_unix_ms": 1774282632768,
+    "user": {
+      "available": 2,
+      "desired": 2
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 316.098,
+    "ts_unix_ms": 1774282643011,
+    "user": {
+      "available": 2,
+      "desired": 3
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 326.237,
+    "ts_unix_ms": 1774282653150,
+    "user": {
+      "available": 2,
+      "desired": 3
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 336.366,
+    "ts_unix_ms": 1774282663280,
+    "user": {
+      "available": 2,
+      "desired": 3
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 346.572,
+    "ts_unix_ms": 1774282673485,
+    "user": {
+      "available": 3,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 356.707,
+    "ts_unix_ms": 1774282683620,
+    "user": {
+      "available": 3,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 366.845,
+    "ts_unix_ms": 1774282693758,
+    "user": {
+      "available": 3,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 2,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 376.971,
+    "ts_unix_ms": 1774282703884,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 3,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 387.099,
+    "ts_unix_ms": 1774282714012,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 3,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 397.232,
+    "ts_unix_ms": 1774282724145,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 407.363,
+    "ts_unix_ms": 1774282734276,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 417.491,
+    "ts_unix_ms": 1774282744404,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 4
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 427.626,
+    "ts_unix_ms": 1774282754539,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 437.769,
+    "ts_unix_ms": 1774282764683,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 447.909,
+    "ts_unix_ms": 1774282774822,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 458.056,
+    "ts_unix_ms": 1774282784969,
+    "user": {
+      "available": 4,
+      "desired": 4
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 468.198,
+    "ts_unix_ms": 1774282795111,
+    "user": {
+      "available": 4,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 478.347,
+    "ts_unix_ms": 1774282805260,
+    "user": {
+      "available": 4,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 488.49,
+    "ts_unix_ms": 1774282815403,
+    "user": {
+      "available": 4,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 498.626,
+    "ts_unix_ms": 1774282825539,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 508.765,
+    "ts_unix_ms": 1774282835678,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 518.897,
+    "ts_unix_ms": 1774282845810,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 529.075,
+    "ts_unix_ms": 1774282855988,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 4,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 539.575,
+    "ts_unix_ms": 1774282866488,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 6,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 549.708,
+    "ts_unix_ms": 1774282876622,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 7
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 559.852,
+    "ts_unix_ms": 1774282886765,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 570.086,
+    "ts_unix_ms": 1774282896999,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 580.217,
+    "ts_unix_ms": 1774282907130,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 590.352,
+    "ts_unix_ms": 1774282917265,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 600.573,
+    "ts_unix_ms": 1774282927486,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 610.801,
+    "ts_unix_ms": 1774282937715,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 620.936,
+    "ts_unix_ms": 1774282947849,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 631.141,
+    "ts_unix_ms": 1774282958054,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 641.299,
+    "ts_unix_ms": 1774282968212,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 651.455,
+    "ts_unix_ms": 1774282978368,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 661.612,
+    "ts_unix_ms": 1774282988525,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 671.746,
+    "ts_unix_ms": 1774282998659,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 7,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 681.88,
+    "ts_unix_ms": 1774283008793,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 692.077,
+    "ts_unix_ms": 1774283018990,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 702.206,
+    "ts_unix_ms": 1774283029119,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 712.341,
+    "ts_unix_ms": 1774283039254,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 722.521,
+    "ts_unix_ms": 1774283049434,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 732.656,
+    "ts_unix_ms": 1774283059569,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 742.79,
+    "ts_unix_ms": 1774283069703,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 752.999,
+    "ts_unix_ms": 1774283079912,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 763.133,
+    "ts_unix_ms": 1774283090046,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 773.27,
+    "ts_unix_ms": 1774283100183,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 783.405,
+    "ts_unix_ms": 1774283110318,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 793.539,
+    "ts_unix_ms": 1774283120452,
+    "user": {
+      "available": 6,
+      "desired": 6
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 803.675,
+    "ts_unix_ms": 1774283130588,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 813.823,
+    "ts_unix_ms": 1774283140736,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 824.009,
+    "ts_unix_ms": 1774283150922,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 834.577,
+    "ts_unix_ms": 1774283161490,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 844.732,
+    "ts_unix_ms": 1774283171645,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 854.891,
+    "ts_unix_ms": 1774283181804,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 865.048,
+    "ts_unix_ms": 1774283191961,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 9,
+      "desired": 9
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 875.21,
+    "ts_unix_ms": 1774283202123,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 6,
+      "desired": 6
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 885.576,
+    "ts_unix_ms": 1774283212489,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  },
+  {
+    "carts": {
+      "available": 6,
+      "desired": 6
+    },
+    "front-end": {
+      "available": 10,
+      "desired": 10
+    },
+    "t_rel_s": 895.711,
+    "ts_unix_ms": 1774283222624,
+    "user": {
+      "available": 5,
+      "desired": 5
+    }
+  }
+]

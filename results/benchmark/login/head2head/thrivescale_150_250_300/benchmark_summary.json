@@ -1,0 +1,56 @@
+{
+  "base_url": "http://127.0.0.1:30001",
+  "frontend_client_metrics": {
+    "avg_latency_ms": 1770.385,
+    "failed": 1574,
+    "p90_latency_ms": 6044.791,
+    "sent": 4222,
+    "slo_violation_rate": 0.6299,
+    "slo_violations": 1668,
+    "success_rps": 8.426,
+    "successful": 2648
+  },
+  "frontend_slo_ms": 200.0,
+  "namespace": "sock-shop",
+  "phases": [
+    {
+      "duration_seconds": 60,
+      "name": "warm",
+      "rps": 150
+    },
+    {
+      "duration_seconds": 120,
+      "name": "pressure",
+      "rps": 250
+    },
+    {
+      "duration_seconds": 120,
+      "name": "peak",
+      "rps": 300
+    }
+  ],
+  "replica_metrics": {
+    "avg_replicas": {
+      "carts": 3.0,
+      "front-end": 4.0,
+      "user": 2.23
+    },
+    "peak_replicas": {
+      "carts": 3,
+      "front-end": 4,
+      "user": 3
+    },
+    "replica_growth": {
+      "carts": 0,
+      "front-end": 0,
+      "user": 2
+    },
+    "replica_seconds": {
+      "carts": 939.123,
+      "front-end": 1252.164,
+      "user": 698.013
+    },
+    "sample_count": 61,
+    "total_replica_seconds": 2889.3
+  }
+}

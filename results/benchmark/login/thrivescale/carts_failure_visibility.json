@@ -1,0 +1,71 @@
+{
+  "error_pattern_count": 0,
+  "pods": [
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-4njvz"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-4p6t8"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-65jcj"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-772f5"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-gwjmz"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-hgglx"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-hwcfx"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-jh89n"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-jldfk"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-qvvcl"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-rx5fc"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-tbghq"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-z2tnf"
+    }
+  ],
+  "since_seconds": 1020
+}

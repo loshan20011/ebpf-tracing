@@ -1,0 +1,27 @@
+[
+  {
+    "name": "phase_a",
+    "duration_seconds": 120,
+    "rps": 100
+  },
+  {
+    "name": "phase_b",
+    "duration_seconds": 180,
+    "rps": 150
+  },
+  {
+    "name": "phase_c",
+    "duration_seconds": 240,
+    "rps": 250
+  },
+  {
+    "name": "phase_d",
+    "duration_seconds": 180,
+    "rps": 175
+  },
+  {
+    "name": "phase_e",
+    "duration_seconds": 180,
+    "rps": 325
+  }
+]

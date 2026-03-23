@@ -1,0 +1,37 @@
+{
+  "after_split": {
+    "avg_latency_ms": 0.0,
+    "failed": 0,
+    "p90_latency_ms": 0.0,
+    "sent": 0,
+    "slo_violation_rate": 0.0,
+    "slo_violations": 0,
+    "success_rps": 0.0,
+    "successful": 0
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "before_split": {
+    "avg_latency_ms": 1801.949,
+    "failed": 1086,
+    "p90_latency_ms": 5119.586,
+    "sent": 6529,
+    "slo_violation_rate": 0.5627,
+    "slo_violations": 3063,
+    "success_rps": 18.291,
+    "successful": 5443
+  },
+  "duration_seconds": 120,
+  "frontend_slo_ms": 200.0,
+  "overall": {
+    "avg_latency_ms": 1801.949,
+    "failed": 1086,
+    "p90_latency_ms": 5119.586,
+    "sent": 6529,
+    "slo_violation_rate": 0.5627,
+    "slo_violations": 3063,
+    "success_rps": 18.291,
+    "successful": 5443
+  },
+  "rps_target": 200.0,
+  "split_seconds": 999999
+}

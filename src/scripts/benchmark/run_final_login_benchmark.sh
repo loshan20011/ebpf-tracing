@@ -254,6 +254,7 @@ PY
 verify_carts_health() {
   python3 - "$NAMESPACE" <<'PY'
 import json
+import time
 import shutil
 import subprocess
 import sys
@@ -279,14 +280,20 @@ if not carts:
     raise SystemExit("no carts pods found")
 
 for pod_name in carts:
-    probe = subprocess.run(
-        cmd(["exec", "-n", namespace, pod_name, "--", "sh", "-c", "wget -qO- http://127.0.0.1:8080/health || curl -fsS http://127.0.0.1:8080/health"]),
-        text=True,
-        capture_output=True,
-        timeout=30,
-    )
-    if probe.returncode != 0:
-        raise SystemExit(f"carts health endpoint failed for {pod_name}: {probe.stderr.strip() or probe.stdout.strip()}")
+    last_error = ""
+    for attempt in range(24):
+        probe = subprocess.run(
+            cmd(["exec", "-n", namespace, pod_name, "--", "sh", "-c", "wget -qO- http://127.0.0.1:8080/health || curl -fsS http://127.0.0.1:8080/health"]),
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if probe.returncode == 0:
+            break
+        last_error = probe.stderr.strip() or probe.stdout.strip()
+        time.sleep(5)
+    else:
+        raise SystemExit(f"carts health endpoint failed for {pod_name}: {last_error}")
 print("carts-health-ok")
 PY
 }

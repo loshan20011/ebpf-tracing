@@ -1,0 +1,15 @@
+{
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "SSBR3_external_or_unmonitored_customers",
+  "client_p90_latency_ms": 303.22,
+  "duration_seconds": 60.071,
+  "ended_at_unix_ms": 1774294010770,
+  "failed_responses": 2,
+  "route_counts": {
+    "customers_get": 201
+  },
+  "sent_requests": 201,
+  "started_at_unix_ms": 1774293950699,
+  "success_rps": 3.313,
+  "successful_responses": 199
+}

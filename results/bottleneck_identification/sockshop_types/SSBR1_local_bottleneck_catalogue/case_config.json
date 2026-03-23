@@ -1,0 +1,70 @@
+{
+  "analysis": {
+    "monitored_services": [
+      "catalogue"
+    ],
+    "root_service": "catalogue"
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "SSBR1_local_bottleneck_catalogue",
+  "collector_duration_seconds": 60,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 60,
+  "expected": {
+    "bottleneck_service": "catalogue",
+    "graph_edges": [
+      "front-end->catalogue"
+    ],
+    "leaf_reason_class": "local_unclear_or_non_cpu",
+    "reason_class": "local_bottleneck"
+  },
+  "initial_replicas": {
+    "carts": 1,
+    "catalogue": 1,
+    "front-end": 1,
+    "orders": 1,
+    "payment": 1,
+    "shipping": 1,
+    "user": 1
+  },
+  "interval_seconds": 5,
+  "mode": "observation",
+  "namespace": "sock-shop",
+  "phase_name": "bottleneck_reason_sockshop",
+  "phases": [
+    {
+      "duration_seconds": 60,
+      "name": "steady",
+      "route_mix": {
+        "catalogue_get": 1.0
+      },
+      "rps": 10.0
+    }
+  ],
+  "random_seed": 7,
+  "restart_after_reset": false,
+  "routes": {
+    "catalogue_get": {
+      "method": "GET",
+      "path": "/catalogue"
+    }
+  },
+  "service_slos": {
+    "sockshop-catalogue-slo": {
+      "maxReplicas": 8,
+      "minReplicas": 1,
+      "priority": "secondary",
+      "sloLatency": 20.0,
+      "targetDeployment": "catalogue"
+    },
+    "sockshop-front-end-slo": {
+      "maxReplicas": 8,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 50.0,
+      "targetDeployment": "front-end"
+    }
+  },
+  "stabilization_seconds": 15,
+  "system_namespace": "thrive-scale"
+}

@@ -245,6 +245,33 @@ def dependency_fraction(metrics, svc: str) -> float:
     return dependency_latency_ms(metrics, svc) / total
 
 
+def runq_pct(metrics, svc: str) -> float:
+    return runq_p90_latency_ms(metrics, svc) / max(RUNQ_FIXED_THRESHOLD_MS, 0.001)
+
+
+def throttle_pct(metrics, svc: str) -> float:
+    return cpu_throttle_ratio(metrics, svc) / max(CPU_THROTTLE_RATIO_THRESHOLD, 0.001)
+
+
+def local_resource_support(metrics, svc: str) -> str:
+    rq = runq_pct(metrics, svc)
+    th = throttle_pct(metrics, svc)
+    if rq >= 1.0 or th >= 1.0:
+        return "strong"
+    if rq >= 0.7 or th >= 0.7:
+        return "medium"
+    return "weak"
+
+
+def resource_support_multiplier(metrics, svc: str) -> float:
+    support = local_resource_support(metrics, svc)
+    if support == "strong":
+        return 1.10
+    if support == "medium":
+        return 1.00
+    return 0.95
+
+
 def get_slo_configs() -> Dict[str, Dict[str, object]]:
     configs: Dict[str, Dict[str, object]] = {}
     raw = custom_api.list_namespaced_custom_object(
@@ -507,12 +534,8 @@ def classify_traffic_pattern(
     delta = short_rps - long_rps
     rise_ratio = short_rps / max(long_rps, 0.001) if short_rps > 0 else 0.0
     fall_ratio = short_rps / max(long_rps, 0.001) if long_rps > 0 else 1.0
-    both_low = (
-        short_rps < DOWNSCALE_RPS_THRESHOLD
-        and long_rps < DOWNSCALE_RPS_THRESHOLD
-        and ratio < 0.8
-        and not under_pressure
-    )
+    recent_sustained = max(long_rps, short_rps, float(current_replicas) * target_rps_per_replica(target))
+    both_low = short_rps <= recent_sustained * 0.45 and long_rps <= recent_sustained * 0.45 and not under_pressure
     easing = short_p90 <= max(long_p90 * 0.95, trigger.get("slo_ms", 0.0) * 1.05)
     current_replicas = max(1, int(current_replicas))
 
@@ -540,16 +563,66 @@ def classify_traffic_pattern(
 
     severe = ratio >= PRIMARY_SEVERE_BREACH_RATIO
     moderate = ratio >= 1.0 or under_pressure
-    replica_deficit = max(0, safe_int(metric_obj(metrics, target).get("replica_deficit", 0), 0))
-    _unused = (final_reason, delta, current_replicas, replica_deficit)
+    _unused = (final_reason, current_replicas)
     return {
         "pattern": pattern,
         "short_rps": round(short_rps, 3),
         "long_rps": round(long_rps, 3),
+        "rps_growth": round(delta, 3),
         "short_p90_ms": round(short_p90, 3),
         "long_p90_ms": round(long_p90, 3),
         "severe": bool(severe),
         "moderate": bool(moderate),
+    }
+
+
+def compute_dynamic_upscale_target(
+    metrics: dict,
+    target: str,
+    trigger: dict,
+    cfg: dict,
+    traffic: dict,
+    current_replicas: int,
+) -> dict:
+    min_replicas = max(1, safe_int(cfg.get("min", 1), 1))
+    max_replicas = max(1, safe_int(cfg.get("max", 1), 1))
+    target_per_replica = target_rps_per_replica(target)
+    long_rps = safe_float(traffic.get("long_rps", 0.0), 0.0)
+    short_rps = safe_float(traffic.get("short_rps", 0.0), 0.0)
+    short_p90 = safe_float(traffic.get("short_p90_ms", trigger.get("p90_ms", 0.0)), 0.0)
+    slo_ms = max(1.0, safe_float(trigger.get("slo_ms", 0.0), 0.0))
+    breach_ratio_value = short_p90 / slo_ms if slo_ms > 0 else 0.0
+    target_from_traffic = max(min_replicas, int(math.ceil(long_rps / max(target_per_replica, 0.1)))) if long_rps > 0 else min_replicas
+    target_from_slo = max(min_replicas, int(math.ceil(current_replicas * max(1.0, breach_ratio_value))))
+    pattern = str(traffic.get("pattern", "") or "")
+    long_base = max(long_rps, 1.0)
+    if pattern == "spike":
+        pattern_multiplier = max(1.0, short_rps / long_base)
+    elif pattern == "sustained_increase":
+        pattern_multiplier = max(1.0, (short_rps / long_base) * 1.15)
+    elif pattern == "stable_high":
+        pattern_multiplier = max(1.0, breach_ratio_value)
+    else:
+        pattern_multiplier = 1.0
+    support_multiplier = resource_support_multiplier(metrics, target)
+    desired = int(
+        math.ceil(
+            max(target_from_traffic, target_from_slo)
+            * pattern_multiplier
+            * support_multiplier
+        )
+    )
+    desired = max(min_replicas, min(max_replicas, desired))
+    return {
+        "target_from_traffic": int(target_from_traffic),
+        "target_from_slo": int(target_from_slo),
+        "trigger_slo": round(slo_ms, 3),
+        "short_p90_ms": round(short_p90, 3),
+        "breach_ratio": round(breach_ratio_value, 3),
+        "pattern_multiplier": round(pattern_multiplier, 3),
+        "resource_support_multiplier": round(support_multiplier, 3),
+        "target_rps_per_replica": round(target_per_replica, 3),
+        "desired_replicas": int(desired),
     }
 
 
@@ -801,6 +874,42 @@ def traffic_pattern_blocked_by(pattern: str) -> str:
     return "reason_not_scalable"
 
 
+def no_scale_resolution(
+    final_reason: str,
+    path_reason: Optional[str],
+    target: str,
+    path: List[str],
+    reason: str,
+    blocked_by: str,
+    traffic: Optional[dict] = None,
+    trigger: Optional[dict] = None,
+    desired: Optional[dict] = None,
+) -> dict:
+    traffic = traffic or {}
+    trigger = trigger or {}
+    desired = desired or {}
+    return {
+        "classification": final_reason,
+        "path_classification": path_reason,
+        "leaf_classification": final_reason,
+        "target": target,
+        "path": path,
+        "reason": reason,
+        "blocked_by": blocked_by,
+        "upscale_eligible": False,
+        "traffic_pattern": traffic.get("pattern", ""),
+        "short_rps": safe_float(traffic.get("short_rps", trigger.get("rps", 0.0)), 0.0),
+        "long_rps": safe_float(traffic.get("long_rps", 0.0), 0.0),
+        "rps_growth": safe_float(traffic.get("rps_growth", 0.0), 0.0),
+        "short_p90_ms": safe_float(traffic.get("short_p90_ms", trigger.get("p90_ms", 0.0)), 0.0),
+        "target_from_traffic": safe_int(desired.get("target_from_traffic", 0), 0),
+        "target_from_slo": safe_int(desired.get("target_from_slo", 0), 0),
+        "desired_replicas_from_traffic": safe_int(desired.get("target_from_traffic", 0), 0),
+        "target_rps_per_replica": safe_float(desired.get("target_rps_per_replica", 0.0), 0.0),
+        "trigger_slo": safe_float(desired.get("trigger_slo", trigger.get("slo_ms", 0.0)), 0.0),
+    }
+
+
 def can_scale_now(service: str, cfg: dict) -> Tuple[bool, str, int, int]:
     current_replicas, ready_replicas = read_replicas(service)
     max_replicas = max(1, safe_int(cfg.get("max", 1), 1))
@@ -859,137 +968,101 @@ def propose_upscale_action(
     protective_streak = record_primary_protective_streak(service, protective_candidate)
 
     if final_reason == "external_or_unmonitored_delay":
-        resolution["blocked_by"] = "external_or_unmonitored_delay"
-        resolution["upscale_eligible"] = False
-        return None, resolution
+        traffic = classify_traffic_pattern(trigger, metrics, target, final_reason, read_replicas(target)[0])
+        desired = compute_dynamic_upscale_target(metrics, target, trigger, slo_cfgs.get(target, {}), traffic, read_replicas(target)[0]) if target in slo_cfgs else {}
+        return None, no_scale_resolution(
+            final_reason,
+            path_reason,
+            target,
+            resolution.get("path", [service]),
+            "external_or_unmonitored_delay",
+            "external_or_unmonitored_delay",
+            traffic=traffic,
+            trigger=trigger,
+            desired=desired,
+        )
     if final_reason != "local_bottleneck":
-        resolution["blocked_by"] = "reason_not_scalable"
-        resolution["upscale_eligible"] = False
-        return None, resolution
+        traffic = classify_traffic_pattern(trigger, metrics, target, final_reason, read_replicas(target)[0])
+        desired = compute_dynamic_upscale_target(metrics, target, trigger, slo_cfgs.get(target, {}), traffic, read_replicas(target)[0]) if target in slo_cfgs else {}
+        return None, no_scale_resolution(
+            final_reason,
+            path_reason,
+            target,
+            resolution.get("path", [service]),
+            "reason_not_scalable",
+            "reason_not_scalable",
+            traffic=traffic,
+            trigger=trigger,
+            desired=desired,
+        )
 
     target_cfg = slo_cfgs.get(target)
     if not target_cfg:
         return None, {"classification": "external_or_unmonitored_delay", "path_classification": path_reason, "leaf_classification": final_reason, "target": target, "path": resolution.get("path", [service]), "reason": "target_not_monitored", "blocked_by": "unknown", "upscale_eligible": False}
 
     allowed, gate_reason, current_replicas, _ready_replicas = can_scale_now(target, target_cfg)
-    if not allowed:
-        return None, {
-            "classification": final_reason,
-            "path_classification": path_reason,
-            "leaf_classification": final_reason,
-                "target": target,
-                "path": resolution.get("path", [service]),
-                "reason": gate_reason,
-                "blocked_by": (
-                    "at_max" if gate_reason == "at_max"
-                    else ("warmup" if gate_reason == "warmup_active" else "unknown")
-                ),
-                "upscale_eligible": False,
-            }
-
     traffic = classify_traffic_pattern(trigger, metrics, target, final_reason, current_replicas)
+    desired = compute_dynamic_upscale_target(metrics, target, trigger, target_cfg, traffic, current_replicas)
+    support = local_resource_support(metrics, target)
+    if not allowed:
+        hold_block = "at_max" if gate_reason == "at_max" else ("warmup" if gate_reason == "warmup_active" else "unknown")
+        no_scale = no_scale_resolution(
+            final_reason,
+            path_reason,
+            target,
+            resolution.get("path", [service]),
+            gate_reason,
+            hold_block,
+            traffic=traffic,
+            trigger=trigger,
+            desired=desired,
+        )
+        no_scale["local_resource_support"] = support
+        return None, no_scale
 
     if priority == "secondary":
         target_rps = preferred_rps(metrics, target)
         demand_per_replica = target_rps / max(current_replicas, 1)
         if not metric_fresh_enough_for_control(metrics, target):
-            return None, {
-                "classification": final_reason,
-                "path_classification": path_reason,
-                "leaf_classification": final_reason,
-                "target": target,
-                "path": resolution.get("path", [service]),
-                "reason": "secondary_metrics_not_fresh",
-                "blocked_by": "not_fresh",
-                "upscale_eligible": False,
-            }
+            no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), "secondary_metrics_not_fresh", "not_fresh", traffic=traffic, trigger=trigger, desired=desired)
+            no_scale["local_resource_support"] = support
+            return None, no_scale
         if (
             target_rps < SECONDARY_UPSCALE_MIN_RPS
             or demand_per_replica < SECONDARY_UPSCALE_MIN_RPS_PER_REPLICA
         ):
-            return None, {
-                "classification": final_reason,
-                "path_classification": path_reason,
-                "leaf_classification": final_reason,
-                "target": target,
-                "path": resolution.get("path", [service]),
-                "reason": "secondary_low_demand",
-                "blocked_by": "demand_gate",
-                "upscale_eligible": False,
-            }
+            no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), "secondary_low_demand", "demand_gate", traffic=traffic, trigger=trigger, desired=desired)
+            no_scale["local_resource_support"] = support
+            return None, no_scale
         if not trigger.get("breached", False) or not trigger.get("active", False):
-            return None, {
-                "classification": final_reason,
-                "path_classification": path_reason,
-                "leaf_classification": final_reason,
-                "target": target,
-                "path": resolution.get("path", [service]),
-                "reason": "secondary_hold",
-                "blocked_by": traffic_pattern_blocked_by(traffic["pattern"]),
-                "upscale_eligible": False,
-                "traffic_pattern": traffic["pattern"],
-                "short_rps": traffic["short_rps"],
-                "long_rps": traffic["long_rps"],
-            }
-        step = 1
+            no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), "secondary_hold", traffic_pattern_blocked_by(traffic["pattern"]), traffic=traffic, trigger=trigger, desired=desired)
+            no_scale["local_resource_support"] = support
+            return None, no_scale
+        desired_target = max(current_replicas + 1, desired["desired_replicas"])
     else:
         pattern = traffic["pattern"]
-        severe = bool(traffic["severe"])
         if pattern == "spike":
             if protective_candidate and protective_streak >= PRIMARY_PROTECTIVE_STREAK_REQUIRED:
-                step = 1
+                desired_target = max(current_replicas + 1, min(current_replicas + 1, desired["desired_replicas"]))
                 resolution["reason"] = "protective_primary_fallback"
             else:
-                return None, {
-                    "classification": final_reason,
-                    "path_classification": path_reason,
-                    "leaf_classification": final_reason,
-                    "target": target,
-                    "path": resolution.get("path", [service]),
-                    "reason": "spike_hold",
-                    "blocked_by": traffic_pattern_blocked_by(pattern),
-                    "upscale_eligible": False,
-                    "traffic_pattern": pattern,
-                    "short_rps": traffic["short_rps"],
-                    "long_rps": traffic["long_rps"],
-                }
-        elif pattern == "sustained_increase":
-            step = 3 if severe else 2
-        elif pattern == "stable_high":
-            if severe:
-                step = 3 if current_replicas <= 1 else 2
-            else:
-                step = 2 if current_replicas <= 1 or trigger["streak"] >= PRIMARY_MODERATE_SUSTAIN_LOOPS else 1
+                no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), "spike_hold", traffic_pattern_blocked_by(pattern), traffic=traffic, trigger=trigger, desired=desired)
+                no_scale["local_resource_support"] = support
+                return None, no_scale
+        elif pattern in {"sustained_increase", "stable_high"}:
+            desired_target = desired["desired_replicas"]
         elif pattern in {"recovery", "low_demand"}:
-            return None, {
-                "classification": final_reason,
-                "path_classification": path_reason,
-                "leaf_classification": final_reason,
-                "target": target,
-                "path": resolution.get("path", [service]),
-                "reason": f"{pattern}_hold",
-                "blocked_by": traffic_pattern_blocked_by(pattern),
-                "upscale_eligible": False,
-                "traffic_pattern": pattern,
-                "short_rps": traffic["short_rps"],
-                "long_rps": traffic["long_rps"],
-            }
+            no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), f"{pattern}_hold", traffic_pattern_blocked_by(pattern), traffic=traffic, trigger=trigger, desired=desired)
+            no_scale["local_resource_support"] = support
+            return None, no_scale
         else:
-            step = 1
+            desired_target = max(current_replicas + 1, desired["desired_replicas"])
 
-    max_replicas = max(1, safe_int(target_cfg.get("max", 1), 1))
-    target_replicas = min(max_replicas, current_replicas + max(1, step))
+    target_replicas = min(max(1, safe_int(target_cfg.get("max", 1), 1)), desired_target)
     if target_replicas <= current_replicas:
-        return None, {
-            "classification": final_reason,
-            "path_classification": path_reason,
-            "leaf_classification": final_reason,
-            "target": target,
-            "path": resolution.get("path", [service]),
-            "reason": "gated",
-            "blocked_by": "unknown",
-            "upscale_eligible": False,
-        }
+        no_scale = no_scale_resolution(final_reason, path_reason, target, resolution.get("path", [service]), "gated", "target_not_above_current", traffic=traffic, trigger=trigger, desired=desired)
+        no_scale["local_resource_support"] = support
+        return None, no_scale
 
     action = {
         "trigger_service": service,
@@ -1027,6 +1100,16 @@ def propose_upscale_action(
         "traffic_pattern": traffic["pattern"],
         "short_rps": traffic["short_rps"],
         "long_rps": traffic["long_rps"],
+        "rps_growth": traffic["rps_growth"],
+        "short_p90_ms": desired["short_p90_ms"],
+        "trigger_slo": desired["trigger_slo"],
+        "target_from_traffic": desired["target_from_traffic"],
+        "target_from_slo": desired["target_from_slo"],
+        "desired_replicas_from_traffic": desired["target_from_traffic"],
+        "target_rps_per_replica": desired["target_rps_per_replica"],
+        "runq_pct": runq_pct(metrics, target),
+        "throttle_pct": throttle_pct(metrics, target),
+        "local_resource_support": support,
     }
     return action, resolution
 
@@ -1085,6 +1168,14 @@ def emit_trace(
     actual_replica_change: int = 0,
     target_rps_per_replica_value: float = 0.0,
     desired_replicas_from_traffic: int = 0,
+    target_from_traffic: int = 0,
+    target_from_slo: int = 0,
+    short_p90_ms: float = 0.0,
+    trigger_slo: float = 0.0,
+    rps_growth: float = 0.0,
+    runq_pct_value: float = 0.0,
+    throttle_pct_value: float = 0.0,
+    local_resource_support_value: str = "",
     downscale_step: int = 0,
     downscale_reason: str = "",
 ) -> None:
@@ -1127,9 +1218,17 @@ def emit_trace(
         "rps": round(float(rps), 3),
         "short_rps": round(float(short_rps), 3),
         "long_rps": round(float(long_rps), 3),
+        "rps_growth": round(float(rps_growth), 3),
+        "short_p90": round(float(short_p90_ms), 3),
+        "trigger_slo": round(float(trigger_slo), 3),
         "traffic_pattern": str(traffic_pattern or ""),
         "target_rps_per_replica": round(float(target_rps_per_replica_value), 3),
         "desired_replicas_from_traffic": int(desired_replicas_from_traffic),
+        "target_from_traffic": int(target_from_traffic),
+        "target_from_slo": int(target_from_slo),
+        "runq_pct": round(float(runq_pct_value), 3),
+        "throttle_pct": round(float(throttle_pct_value), 3),
+        "local_resource_support": str(local_resource_support_value or ""),
         "downscale_step": int(downscale_step),
         "downscale_reason": str(downscale_reason or ""),
         "under_pressure": bool(under_pressure),
@@ -1189,9 +1288,8 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
     desired_replicas_from_traffic = max(min_replicas, int(math.ceil(long_rps / max(target_per_replica, 0.1)))) if long_rps > 0 else min_replicas
     runq_ms = runq_latency_ms(metrics, service)
     runq_low = runq_ms <= runq_low_threshold_ms(metrics, service)
-    demand_per_replica = long_rps / max(current_replicas, 1)
     oversized_gap = max(0, current_replicas - desired_replicas_from_traffic)
-    short_confirms_no_bounce = short_rps <= max(long_rps * 1.10, target_per_replica * desired_replicas_from_traffic)
+    short_confirms_no_bounce = short_rps <= max(long_rps * 1.05, target_per_replica * desired_replicas_from_traffic)
     no_breach = not bool(snapshot and snapshot.get("under_pressure", False))
     relative_downscale_ready = bool(
         no_breach
@@ -1199,12 +1297,7 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         and desired_replicas_from_traffic < current_replicas
         and short_confirms_no_bounce
     )
-    very_low_demand = (
-        short_rps < DOWNSCALE_RPS_THRESHOLD
-        and long_rps < DOWNSCALE_RPS_THRESHOLD
-        and demand_per_replica < DOWNSCALE_RPS_PER_REPLICA_THRESHOLD
-    )
-    sustained_low_demand = bool(relative_downscale_ready or very_low_demand)
+    sustained_low_demand = bool(relative_downscale_ready)
     downscale_streak = record_low_demand_streak(service, sustained_low_demand)
     if not sustained_low_demand:
         return None
@@ -1213,13 +1306,9 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
     if downscale_streak < LOW_DEMAND_STREAK_REQUIRED:
         return None
 
-    if oversized_gap >= 6:
-        step = 3
-    elif oversized_gap >= 3:
-        step = 2
-    else:
-        step = 1
+    step = max(1, int(math.ceil(oversized_gap * 0.5)))
     target = max(min_replicas, current_replicas - step)
+    target = max(desired_replicas_from_traffic, target)
     if target >= current_replicas:
         return None
 
@@ -1238,6 +1327,14 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         "downscale_reason": "traffic_oversized_downscale",
         "downscale_step": step,
         "traffic_pattern": "low_demand",
+        "rps_growth": short_rps - long_rps,
+        "short_p90_ms": safe_float(snapshot.get("p90_ms", 0.0), 0.0) if snapshot else 0.0,
+        "trigger_slo": safe_float(snapshot.get("slo_ms", 0.0), 0.0) if snapshot else 0.0,
+        "target_from_traffic": desired_replicas_from_traffic,
+        "target_from_slo": current_replicas,
+        "runq_pct": runq_pct(metrics, service),
+        "throttle_pct": throttle_pct(metrics, service),
+        "local_resource_support": local_resource_support(metrics, service),
         "low_demand_streak": downscale_streak,
     }
 
@@ -1367,6 +1464,16 @@ def main():
                         traffic_pattern=str(resolution.get("traffic_pattern", "")),
                         short_rps=trace_short_rps,
                         long_rps=trace_long_rps,
+                        rps_growth=safe_float(resolution.get("rps_growth", trace_short_rps - trace_long_rps), 0.0),
+                        short_p90_ms=safe_float(resolution.get("short_p90_ms", snapshot.get("p90_ms", 0.0)), 0.0),
+                        trigger_slo=safe_float(resolution.get("trigger_slo", snapshot.get("slo_ms", 0.0)), 0.0),
+                        target_from_traffic=safe_int(resolution.get("target_from_traffic", 0), 0),
+                        target_from_slo=safe_int(resolution.get("target_from_slo", 0), 0),
+                        desired_replicas_from_traffic=safe_int(resolution.get("desired_replicas_from_traffic", 0), 0),
+                        target_rps_per_replica_value=safe_float(resolution.get("target_rps_per_replica", 0.0), 0.0),
+                        runq_pct_value=runq_pct(metrics, resolution_target),
+                        throttle_pct_value=throttle_pct(metrics, resolution_target),
+                        local_resource_support_value=str(resolution.get("local_resource_support", local_resource_support(metrics, resolution_target))),
                         actual_replica_change=0,
                     )
                 elif snapshot["priority"] == "primary":
@@ -1408,6 +1515,12 @@ def main():
                         traffic_pattern="low_demand" if (short_rps < DOWNSCALE_RPS_THRESHOLD and long_rps < DOWNSCALE_RPS_THRESHOLD) else "",
                         short_rps=short_rps,
                         long_rps=long_rps,
+                        rps_growth=short_rps - long_rps,
+                        short_p90_ms=snapshot["p90_ms"],
+                        trigger_slo=snapshot["slo_ms"],
+                        runq_pct_value=runq_pct(metrics, service),
+                        throttle_pct_value=throttle_pct(metrics, service),
+                        local_resource_support_value=local_resource_support(metrics, service),
                         actual_replica_change=0,
                     )
 
@@ -1470,6 +1583,16 @@ def main():
                     traffic_pattern=str(chosen.get("traffic_pattern", "")),
                     short_rps=safe_float(chosen.get("short_rps", chosen.get("rps", 0.0)), 0.0),
                     long_rps=safe_float(chosen.get("long_rps", 0.0), 0.0),
+                    rps_growth=safe_float(chosen.get("rps_growth", 0.0), 0.0),
+                    short_p90_ms=safe_float(chosen.get("short_p90_ms", chosen.get("p90_ms", 0.0)), 0.0),
+                    trigger_slo=safe_float(chosen.get("trigger_slo", chosen.get("slo_ms", 0.0)), 0.0),
+                    target_from_traffic=safe_int(chosen.get("target_from_traffic", 0), 0),
+                    target_from_slo=safe_int(chosen.get("target_from_slo", 0), 0),
+                    desired_replicas_from_traffic=safe_int(chosen.get("desired_replicas_from_traffic", 0), 0),
+                    target_rps_per_replica_value=safe_float(chosen.get("target_rps_per_replica", 0.0), 0.0),
+                    runq_pct_value=safe_float(chosen.get("runq_pct", 0.0), 0.0),
+                    throttle_pct_value=safe_float(chosen.get("throttle_pct", 0.0), 0.0),
+                    local_resource_support_value=str(chosen.get("local_resource_support", "")),
                     actual_replica_change=int(chosen["step"]),
                 )
             elif downscale_actions:
@@ -1512,8 +1635,16 @@ def main():
                     traffic_pattern=str(chosen_downscale.get("traffic_pattern", "low_demand")),
                     short_rps=safe_float(chosen_downscale.get("short_rps", chosen_downscale.get("rps", 0.0)), 0.0),
                     long_rps=safe_float(chosen_downscale.get("long_rps", 0.0), 0.0),
+                    rps_growth=safe_float(chosen_downscale.get("rps_growth", 0.0), 0.0),
+                    short_p90_ms=safe_float(chosen_downscale.get("short_p90_ms", 0.0), 0.0),
+                    trigger_slo=safe_float(chosen_downscale.get("trigger_slo", safe_float(slo_cfgs[chosen_downscale["service"]].get("slo", 0.0), 0.0)), 0.0),
+                    target_from_traffic=safe_int(chosen_downscale.get("target_from_traffic", chosen_downscale.get("desired_replicas_from_traffic", 0)), 0),
+                    target_from_slo=safe_int(chosen_downscale.get("target_from_slo", chosen_downscale.get("current_replicas", 0)), 0),
                     target_rps_per_replica_value=safe_float(chosen_downscale.get("target_rps_per_replica", 0.0), 0.0),
                     desired_replicas_from_traffic=safe_int(chosen_downscale.get("desired_replicas_from_traffic", 0), 0),
+                    runq_pct_value=safe_float(chosen_downscale.get("runq_pct", 0.0), 0.0),
+                    throttle_pct_value=safe_float(chosen_downscale.get("throttle_pct", 0.0), 0.0),
+                    local_resource_support_value=str(chosen_downscale.get("local_resource_support", "")),
                     downscale_step=safe_int(chosen_downscale.get("downscale_step", chosen_downscale.get("step", 0)), 0),
                     downscale_reason=str(chosen_downscale.get("downscale_reason", "traffic_oversized_downscale")),
                     actual_replica_change=-int(chosen_downscale["step"]),

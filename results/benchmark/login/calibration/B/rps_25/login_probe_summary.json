@@ -1,0 +1,89 @@
+{
+  "after_split": {
+    "avg_latency_ms": 12.448,
+    "failed": 0,
+    "p90_latency_ms": 12.038,
+    "sent": 750,
+    "slo_violation_rate": 0.0,
+    "slo_violations": 0,
+    "success_rps": 25.015,
+    "successful": 750
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "before_split": {
+    "avg_latency_ms": 14.937,
+    "failed": 0,
+    "p90_latency_ms": 30.512,
+    "sent": 750,
+    "slo_violation_rate": 0.0,
+    "slo_violations": 0,
+    "success_rps": 25.038,
+    "successful": 750
+  },
+  "duration_seconds": 60,
+  "fail_streak_reached": false,
+  "frontend_slo_ms": 200.0,
+  "level_failed": false,
+  "overall": {
+    "avg_latency_ms": 13.693,
+    "failed": 0,
+    "p90_latency_ms": 14.95,
+    "sent": 1500,
+    "slo_violation_rate": 0.0,
+    "slo_violations": 0,
+    "success_rps": 25.009,
+    "successful": 1500
+  },
+  "rps_target": 25.0,
+  "split_seconds": 30,
+  "windows_10s": [
+    {
+      "failed": false,
+      "p90_latency_ms": 15.205,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 0
+    },
+    {
+      "failed": false,
+      "p90_latency_ms": 31.066,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 1
+    },
+    {
+      "failed": false,
+      "p90_latency_ms": 36.405,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 2
+    },
+    {
+      "failed": false,
+      "p90_latency_ms": 11.243,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 3
+    },
+    {
+      "failed": false,
+      "p90_latency_ms": 15.305,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 4
+    },
+    {
+      "failed": false,
+      "p90_latency_ms": 12.272,
+      "sent": 250,
+      "success_rate": 1.0,
+      "successful": 250,
+      "window_index": 5
+    }
+  ]
+}

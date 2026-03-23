@@ -1,0 +1,230 @@
+{
+  "case_name": "F4_graph_customers",
+  "client": {
+    "duration_seconds": 64.443,
+    "failed_responses": 0,
+    "p90_latency_ms": 328.099,
+    "sent_requests": 218,
+    "success_rps": 3.383,
+    "successful_responses": 218
+  },
+  "controller": {
+    "audit_count": 0,
+    "scale_action_count": 0,
+    "scale_actions": [],
+    "trace_count": 0
+  },
+  "dependency_check": {
+    "expected_edges": [
+      "front-end->user"
+    ],
+    "matched_edges": [
+      "front-end->user"
+    ],
+    "missing_edges": [],
+    "observed_edges": [
+      "front-end->user"
+    ],
+    "pass": true,
+    "unexpected_edges": []
+  },
+  "metric_accuracy": {
+    "client_p90_ms": 328.099,
+    "client_rps": 3.383,
+    "frontend_p90_ms": 315.175,
+    "frontend_rps": 4.25,
+    "p90_near_similar": true,
+    "p90_ratio": 0.961,
+    "rps_near_similar": true,
+    "rps_ratio": 1.256,
+    "verdict": "PASS"
+  },
+  "platform": {
+    "frontend_client_comparison_valid": true,
+    "frontend_latency_valid": true,
+    "frontend_latency_valid_reason": "corroborated_ebpf_request_evidence",
+    "frontend_p90_median_ms": 315.175,
+    "frontend_rps_median": 4.25,
+    "latest_metrics_keys": [
+      "carts",
+      "carts-db",
+      "catalogue",
+      "catalogue-db",
+      "front-end",
+      "frontend",
+      "orders",
+      "orders-db",
+      "payment",
+      "queue-master",
+      "rabbitmq",
+      "session-db",
+      "shipping",
+      "user",
+      "user-db"
+    ],
+    "observed_graph_edges": [
+      "front-end->carts",
+      "front-end->catalogue",
+      "front-end->user",
+      "user->user-db"
+    ],
+    "runq_normal_range": {
+      "carts": {
+        "max_ms": 50.352,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "catalogue": {
+        "max_ms": 0.0,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "front-end": {
+        "max_ms": 57.463,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "orders": {
+        "max_ms": 0.0,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "payment": {
+        "max_ms": 0.0,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "shipping": {
+        "max_ms": 0.0,
+        "median_ms": 0.0,
+        "min_ms": 0.0
+      },
+      "user": {
+        "max_ms": 89.291,
+        "median_ms": 78.434,
+        "min_ms": 0.0
+      }
+    },
+    "service_summary": {
+      "carts": {
+        "latency_valid": true,
+        "latency_valid_reason": "corroborated_ebpf_request_evidence",
+        "platform_p90_median_ms": 12.96,
+        "platform_rps_median": 0.0
+      },
+      "catalogue": {
+        "latency_valid": true,
+        "latency_valid_reason": "corroborated_ebpf_request_evidence",
+        "platform_p90_median_ms": 0.175,
+        "platform_rps_median": 0.65
+      },
+      "front-end": {
+        "latency_valid": true,
+        "latency_valid_reason": "corroborated_ebpf_request_evidence",
+        "platform_p90_median_ms": 315.175,
+        "platform_rps_median": 4.25
+      },
+      "orders": {
+        "latency_valid": false,
+        "latency_valid_reason": "no_request_evidence",
+        "platform_p90_median_ms": null,
+        "platform_rps_median": 0.0
+      },
+      "payment": {
+        "latency_valid": true,
+        "latency_valid_reason": "corroborated_ebpf_request_evidence",
+        "platform_p90_median_ms": 0.172,
+        "platform_rps_median": 0.4
+      },
+      "shipping": {
+        "latency_valid": false,
+        "latency_valid_reason": "no_request_evidence",
+        "platform_p90_median_ms": null,
+        "platform_rps_median": 0.0
+      },
+      "user": {
+        "latency_valid": true,
+        "latency_valid_reason": "corroborated_ebpf_request_evidence",
+        "platform_p90_median_ms": 306.385,
+        "platform_rps_median": 3.775
+      }
+    }
+  },
+  "replicas": {
+    "carts": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "carts-db": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "catalogue": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "catalogue-db": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "front-end": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "orders": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "orders-db": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "payment": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "queue-master": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "rabbitmq": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "session-db": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    },
+    "shipping": {
+      "available_replicas": 0,
+      "ready_replicas": 0,
+      "spec_replicas": 1
+    },
+    "user": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 4
+    },
+    "user-db": {
+      "available_replicas": 1,
+      "ready_replicas": 1,
+      "spec_replicas": 1
+    }
+  },
+  "window": {
+    "collector_mode": "",
+    "end_unix_ms": 1774290723428,
+    "start_unix_ms": 1774290658983
+  }
+}

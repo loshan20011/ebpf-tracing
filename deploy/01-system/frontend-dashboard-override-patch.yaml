@@ -1,0 +1,19 @@
+spec:
+  template:
+    spec:
+      volumes:
+        - name: frontend-dashboard-override
+          configMap:
+            name: frontend-dashboard-override
+        - name: frontend-nginx-override
+          configMap:
+            name: frontend-nginx-override
+      containers:
+        - name: frontend
+          volumeMounts:
+            - name: frontend-dashboard-override
+              mountPath: /usr/share/nginx/html/dashboard.html
+              subPath: dashboard.html
+            - name: frontend-nginx-override
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf

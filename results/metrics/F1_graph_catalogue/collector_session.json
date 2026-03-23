@@ -1,8 +1,10 @@
 {
   "aggregator_base_url": "http://127.0.0.1:30938",
   "case_name": "F1_graph_catalogue",
-  "duration_seconds": 195,
+  "collection_started_at_unix_ms": 1774290747999,
+  "duration_seconds": 60,
   "interval_seconds": 5,
   "namespace": "sock-shop",
-  "started_at_unix_ms": 1774104628142
+  "skip_prepare": true,
+  "started_at_unix_ms": 1774290747999
 }

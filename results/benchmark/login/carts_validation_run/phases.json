@@ -1,0 +1,17 @@
+[
+  {
+    "duration_seconds": 30,
+    "name": "warm",
+    "rps": 20
+  },
+  {
+    "duration_seconds": 60,
+    "name": "high",
+    "rps": 60
+  },
+  {
+    "duration_seconds": 90,
+    "name": "drop",
+    "rps": 20
+  }
+]

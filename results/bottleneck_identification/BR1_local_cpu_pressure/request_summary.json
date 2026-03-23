@@ -1,0 +1,15 @@
+{
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BR1_local_cpu_pressure",
+  "client_p90_latency_ms": 397.685,
+  "duration_seconds": 90.231,
+  "ended_at_unix_ms": 1774291506092,
+  "failed_responses": 0,
+  "route_counts": {
+    "cpu_hot": 239
+  },
+  "sent_requests": 239,
+  "started_at_unix_ms": 1774291415861,
+  "success_rps": 2.649,
+  "successful_responses": 239
+}

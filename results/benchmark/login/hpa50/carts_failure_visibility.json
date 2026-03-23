@@ -1,0 +1,51 @@
+{
+  "error_pattern_count": 0,
+  "pods": [
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-4zxqd"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-6tkbx"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-88ldg"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-g7tz7"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-jldfk"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-k2c5q"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-r7dzs"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-t69n7"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-wk96g"
+    }
+  ],
+  "since_seconds": 1020
+}

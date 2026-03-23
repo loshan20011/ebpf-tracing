@@ -377,6 +377,11 @@ def main() -> int:
         default=120,
         help="Maximum time to wait for restored replicas and controller mode to become ready",
     )
+    parser.add_argument(
+        "--skip-prepare",
+        action="store_true",
+        help="Skip environment reset and start collection immediately",
+    )
     args = parser.parse_args()
 
     case_dir = args.output_root / args.case_name
@@ -396,8 +401,12 @@ def main() -> int:
         "duration_seconds": args.duration_seconds,
         "interval_seconds": args.interval_seconds,
         "started_at_unix_ms": int(time.time() * 1000),
+        "skip_prepare": bool(args.skip_prepare),
     }
-    prepare_case_environment(args, session_meta)
+    if args.skip_prepare:
+        session_meta["collection_started_at_unix_ms"] = int(time.time() * 1000)
+    else:
+        prepare_case_environment(args, session_meta)
     session_path.write_text(json.dumps(session_meta, indent=2, sort_keys=True), encoding="utf-8")
 
     end_time = time.time() + args.duration_seconds

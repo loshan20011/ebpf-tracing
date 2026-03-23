@@ -154,8 +154,160 @@ def replica_snapshot(replica_rows: list[dict]) -> dict:
     return out
 
 
+def format_metric(value) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def expected_edges_for_case(case_name: str) -> list[str]:
+    mapping = {
+        "baseline_low_steady": ["front-end->catalogue", "front-end->carts", "front-end->user"],
+        "F1_graph_catalogue": ["front-end->catalogue"],
+        "F2_graph_login": ["front-end->user"],
+        "F3_graph_cart": ["front-end->carts"],
+        "F4_graph_customers": ["front-end->user"],
+    }
+    return mapping.get(case_name, [])
+
+
+def observed_relevant_edges(observed_edges: list[str], expected_edges: list[str]) -> list[str]:
+    if not expected_edges:
+        return observed_edges
+    relevant = [edge for edge in observed_edges if edge in set(expected_edges)]
+    return relevant or observed_edges
+
+
+def dependency_accuracy(expected_edges: list[str], observed_edges: list[str]) -> dict:
+    expected = set(expected_edges)
+    observed = set(observed_edges)
+    if not expected:
+        return {
+            "expected_edges": expected_edges,
+            "observed_edges": observed_edges,
+            "missing_edges": [],
+            "unexpected_edges": sorted(observed),
+            "pass": bool(observed),
+        }
+    missing = sorted(expected - observed)
+    matched = sorted(expected & observed)
+    return {
+        "expected_edges": expected_edges,
+        "observed_edges": observed_edges,
+        "matched_edges": matched,
+        "missing_edges": missing,
+        "unexpected_edges": sorted(observed - expected),
+        "pass": len(missing) == 0,
+    }
+
+
+def metric_accuracy(client: dict, platform: dict) -> dict:
+    client_p90 = float(client.get("p90_latency_ms", 0.0) or 0.0)
+    client_rps = float(client.get("success_rps", 0.0) or 0.0)
+    frontend_p90 = float(platform.get("frontend_p90_median_ms", 0.0) or 0.0)
+    frontend_rps = float(platform.get("frontend_rps_median", 0.0) or 0.0)
+
+    p90_ratio = (frontend_p90 / client_p90) if client_p90 > 0 else 0.0
+    rps_ratio = (frontend_rps / client_rps) if client_rps > 0 else 0.0
+
+    p90_ok = client_p90 > 0 and frontend_p90 > 0 and 0.5 <= p90_ratio <= 2.0
+    rps_ok = client_rps > 0 and frontend_rps > 0 and 0.5 <= rps_ratio <= 1.5
+
+    if p90_ok and rps_ok:
+        verdict = "PASS"
+    elif p90_ok or rps_ok:
+        verdict = "PARTIAL"
+    else:
+        verdict = "FAIL"
+
+    return {
+        "client_p90_ms": round(client_p90, 3),
+        "frontend_p90_ms": round(frontend_p90, 3),
+        "p90_ratio": round(p90_ratio, 3) if p90_ratio else 0.0,
+        "client_rps": round(client_rps, 3),
+        "frontend_rps": round(frontend_rps, 3),
+        "rps_ratio": round(rps_ratio, 3) if rps_ratio else 0.0,
+        "p90_near_similar": p90_ok,
+        "rps_near_similar": rps_ok,
+        "verdict": verdict,
+    }
+
+
+def case_markdown_table(summary: dict) -> str:
+    client = summary.get("client", {}) or {}
+    platform = summary.get("platform", {}) or {}
+    dep = summary.get("dependency_check", {}) or {}
+    metrics = summary.get("metric_accuracy", {}) or {}
+    lines = [
+        "| Case | Client p90 (ms) | Client RPS | Platform FE p90 (ms) | Platform FE RPS | Metric Accuracy | Expected Path | Observed Path | Dependency Accuracy |",
+        "| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+        (
+            f"| {summary.get('case_name', '-')} | "
+            f"{format_metric(client.get('p90_latency_ms'))} | "
+            f"{format_metric(client.get('success_rps'))} | "
+            f"{format_metric(platform.get('frontend_p90_median_ms'))} | "
+            f"{format_metric(platform.get('frontend_rps_median'))} | "
+            f"{metrics.get('verdict', '-')} | "
+            f"{', '.join(dep.get('expected_edges', [])) or '-'} | "
+            f"{', '.join(dep.get('observed_edges', [])) or '-'} | "
+            f"{'PASS' if dep.get('pass') else 'FAIL'} |"
+        ),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def print_summary_report(summary: dict, case_dir: Path) -> None:
+    client = summary.get("client", {}) or {}
+    platform = summary.get("platform", {}) or {}
+    dep = summary.get("dependency_check", {}) or {}
+    metrics = summary.get("metric_accuracy", {}) or {}
+
+    print(f"Case: {summary.get('case_name', '-')}")
+    print(f"Result Dir: {case_dir}")
+    print(
+        "Metrics: "
+        f"client_p90={format_metric(client.get('p90_latency_ms'))} ms, "
+        f"client_rps={format_metric(client.get('success_rps'))}, "
+        f"frontend_p90={format_metric(platform.get('frontend_p90_median_ms'))} ms, "
+        f"frontend_rps={format_metric(platform.get('frontend_rps_median'))}"
+    )
+    print(
+        "Metric Accuracy: "
+        f"p90_near_similar={metrics.get('p90_near_similar', False)} "
+        f"(ratio={format_metric(metrics.get('p90_ratio'))}), "
+        f"rps_near_similar={metrics.get('rps_near_similar', False)} "
+        f"(ratio={format_metric(metrics.get('rps_ratio'))}), "
+        f"result={metrics.get('verdict', '-')}"
+    )
+    print(
+        "Dependency Accuracy: "
+        f"expected={', '.join(dep.get('expected_edges', [])) or '-'} | "
+        f"observed={', '.join(dep.get('observed_edges', [])) or '-'} | "
+        f"result={'PASS' if dep.get('pass') else 'FAIL'}"
+    )
+    if dep.get("missing_edges"):
+        print(f"Missing: {', '.join(dep.get('missing_edges', []))}")
+    print("Table:")
+    print(case_markdown_table(summary).strip())
+
+
 def summarize(case_dir: Path) -> dict:
-    request_summary = json.loads((case_dir / "request_summary.json").read_text(encoding="utf-8"))
+    request_summary_path = case_dir / "request_summary.json"
+    if not request_summary_path.exists():
+        suggestions = []
+        parent = case_dir.parent
+        if parent.exists():
+            for candidate in sorted(parent.iterdir()):
+                if candidate.is_dir() and (candidate / "request_summary.json").exists():
+                    suggestions.append(candidate.name)
+        suggestion_text = ""
+        if suggestions:
+            suggestion_text = f" Available case dirs: {', '.join(suggestions)}."
+        raise FileNotFoundError(f"Missing {request_summary_path}.{suggestion_text}")
+
+    request_summary = json.loads(request_summary_path.read_text(encoding="utf-8"))
     session_meta = load_json(case_dir / "collector_session.json")
     case_start_ms = int(
         request_summary.get("started_at_unix_ms")
@@ -226,6 +378,20 @@ def summarize(case_dir: Path) -> dict:
         if frontend_valid:
             break
 
+    observed_edges = topology_edges(graph_rows)
+    expected_edges = expected_edges_for_case(str(request_summary.get("case_name", "")))
+    dep_check = dependency_accuracy(expected_edges, observed_relevant_edges(observed_edges, expected_edges))
+    metric_check = metric_accuracy(
+        {
+            "p90_latency_ms": round(p90(success_latencies), 3),
+            "success_rps": round(successful_responses / max(client_duration, 0.001), 3),
+        },
+        {
+            "frontend_p90_median_ms": round(median(frontend_valid_latency_values), 3) if frontend_valid_latency_values else None,
+            "frontend_rps_median": round(median(metric_series(graph_rows, "front-end", "rps")), 3),
+        },
+    )
+
     summary = {
         "case_name": request_summary.get("case_name"),
         "client": {
@@ -244,9 +410,11 @@ def summarize(case_dir: Path) -> dict:
             "frontend_client_comparison_valid": bool(frontend_valid_latency_values),
             "service_summary": service_summary,
             "runq_normal_range": runq_ranges,
-            "observed_graph_edges": topology_edges(graph_rows),
+            "observed_graph_edges": observed_edges,
             "latest_metrics_keys": sorted(latest_metrics.keys()) if isinstance(latest_metrics, dict) else [],
         },
+        "dependency_check": dep_check,
+        "metric_accuracy": metric_check,
         "controller": {
             "scale_action_count": len(scale_actions),
             "scale_actions": scale_actions,
@@ -271,7 +439,8 @@ def main() -> int:
     summary = summarize(args.case_dir)
     out_path = args.case_dir / "summary.json"
     out_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    (args.case_dir / "summary.md").write_text(case_markdown_table(summary), encoding="utf-8")
+    print_summary_report(summary, args.case_dir)
     return 0
 
 

@@ -1,0 +1,53 @@
+{
+  "pods": [
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-bxs9r",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-dwl4r",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-glh7s",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-jldfk",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-mtm5v",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-tzkqd",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    }
+  ],
+  "restart_total": 0
+}

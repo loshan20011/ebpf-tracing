@@ -1,0 +1,140 @@
+{
+  "case_name": "BR2_downstream_delay",
+  "client": {
+    "failed_responses": 0,
+    "p90_latency_ms": 76.407,
+    "success_rps": 9.999,
+    "successful_responses": 900
+  },
+  "detection": {
+    "detected_bottleneck_service": "svc-cpu",
+    "detected_leaf_reason_class": "local_cpu_pressure",
+    "detected_path_reason_class": "downstream_delay",
+    "detected_reason_class": "downstream_delay",
+    "evaluated_reason_class": "downstream_delay",
+    "path": [
+      "gateway",
+      "svc-chain",
+      "svc-cpu"
+    ],
+    "reason_detail": "local_cpu_pressure",
+    "reason_scope_used": "path"
+  },
+  "expected": {
+    "bottleneck_service": "svc-cpu",
+    "leaf_reason_class": "local_cpu_pressure",
+    "path_reason_class": "downstream_delay",
+    "reason_class": "downstream_delay"
+  },
+  "graph": {
+    "evaluation_window_seconds": 40,
+    "expected_edges": [
+      "gateway->svc-chain",
+      "svc-chain->svc-cpu"
+    ],
+    "matching_snapshots": 7,
+    "observed_edges": [
+      "gateway->svc-chain",
+      "svc-chain->svc-cpu"
+    ],
+    "pass": true,
+    "total_snapshots": 7
+  },
+  "mode": "observation",
+  "pass_fail": {
+    "leaf_reason_pass": true,
+    "max_reason_consecutive_loops": 7,
+    "max_service_consecutive_loops": 7,
+    "overall_pass": true,
+    "path_reason_pass": true,
+    "reason_pass": true,
+    "reason_stability_pass": true,
+    "service_identification_pass": true,
+    "service_pass": true,
+    "service_stability_pass": true
+  },
+  "phase_name": "bottleneck_reason",
+  "platform": {
+    "gateway": {
+      "cpu_throttle_ratio": 0.0,
+      "dependency_attributed_latency": 20.443,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 20.686,
+      "rps": 9.6,
+      "runq_p90_latency": 0.0,
+      "service_handling_latency": 0.243
+    },
+    "svc-chain": {
+      "cpu_throttle_ratio": 0.0,
+      "dependency_attributed_latency": 20.212,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 20.443,
+      "rps": 9.6,
+      "runq_p90_latency": 0.0,
+      "service_handling_latency": 0.231
+    },
+    "svc-cpu": {
+      "cpu_throttle_ratio": 0.2857,
+      "dependency_attributed_latency": 0.0,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 20.212,
+      "rps": 9.6,
+      "runq_p90_latency": 47.855,
+      "service_handling_latency": 20.212
+    }
+  },
+  "slo_setup": {
+    "downstream_confirmed_ok": true,
+    "downstream_slos": {
+      "chain-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 12.0,
+        "targetDeployment": "svc-chain"
+      },
+      "cpu-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 10.0,
+        "targetDeployment": "svc-cpu"
+      },
+      "fanout-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 100.0,
+        "targetDeployment": "svc-fanout"
+      },
+      "io-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 100.0,
+        "targetDeployment": "svc-io"
+      }
+    },
+    "gateway_confirmed": {
+      "maxReplicas": 5,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 12.0,
+      "targetDeployment": "gateway"
+    },
+    "gateway_confirmed_ok": true,
+    "gateway_patch_applied": true,
+    "gateway_slo_latency": 12.0,
+    "namespace": "thrive-demo",
+    "ok": true,
+    "replica_bounds": {
+      "maxReplicas": 5,
+      "minReplicas": 1
+    },
+    "route_path": "/chain?count=15000000"
+  }
+}

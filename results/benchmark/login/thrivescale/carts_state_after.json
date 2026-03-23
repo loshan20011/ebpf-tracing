@@ -1,0 +1,109 @@
+{
+  "pods": [
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-4njvz",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-4p6t8",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-65jcj",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-772f5",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-gwjmz",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-hgglx",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-hwcfx",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-jh89n",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-jldfk",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-qvvcl",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-rx5fc",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-tbghq",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    },
+    {
+      "last_terminated_reasons": [],
+      "name": "carts-5c66b4bcd4-z2tnf",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "waiting_reasons": []
+    }
+  ],
+  "restart_total": 0
+}

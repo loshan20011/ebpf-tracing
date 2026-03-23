@@ -1,0 +1,105 @@
+{
+  "after_split": {
+    "avg_latency_ms": 2979.967,
+    "failed": 378,
+    "p90_latency_ms": 5119.901,
+    "sent": 390,
+    "slo_violation_rate": 0.8333,
+    "slo_violations": 10,
+    "success_rps": 0.259,
+    "successful": 12
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "before_split": {
+    "avg_latency_ms": 1653.006,
+    "failed": 123,
+    "p90_latency_ms": 5143.108,
+    "sent": 195,
+    "slo_violation_rate": 0.5417,
+    "slo_violations": 39,
+    "success_rps": 2.535,
+    "successful": 72
+  },
+  "duration_seconds": 60,
+  "fail_streak_reached": true,
+  "frontend_slo_ms": 200.0,
+  "level_failed": true,
+  "overall": {
+    "avg_latency_ms": 1842.572,
+    "failed": 501,
+    "p90_latency_ms": 7155.504,
+    "sent": 585,
+    "slo_violation_rate": 0.5833,
+    "slo_violations": 49,
+    "success_rps": 1.114,
+    "successful": 84
+  },
+  "rps_target": 20.0,
+  "split_seconds": 30,
+  "windows_10s": [
+    {
+      "failed": true,
+      "p90_latency_ms": 888.64,
+      "sent": 53,
+      "success_rate": 1.0,
+      "successful": 53,
+      "window_index": 0
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 11184.953,
+      "sent": 54,
+      "success_rate": 0.2037,
+      "successful": 11,
+      "window_index": 1
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 11193.198,
+      "sent": 88,
+      "success_rate": 0.0909,
+      "successful": 8,
+      "window_index": 2
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 3068.775,
+      "sent": 121,
+      "success_rate": 0.0661,
+      "successful": 8,
+      "window_index": 3
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 5.909,
+      "sent": 22,
+      "success_rate": 0.0909,
+      "successful": 2,
+      "window_index": 4
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 0.0,
+      "sent": 118,
+      "success_rate": 0.0,
+      "successful": 0,
+      "window_index": 5
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 7155.504,
+      "sent": 87,
+      "success_rate": 0.023,
+      "successful": 2,
+      "window_index": 6
+    },
+    {
+      "failed": true,
+      "p90_latency_ms": 0.0,
+      "sent": 42,
+      "success_rate": 0.0,
+      "successful": 0,
+      "window_index": 7
+    }
+  ]
+}

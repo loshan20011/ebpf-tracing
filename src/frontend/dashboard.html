@@ -248,6 +248,61 @@
       display: block;
       margin-bottom: 4px;
     }
+    .dependency-list, .status-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      max-height: 24vh;
+      overflow: auto;
+    }
+    .status-row, .dependency-row, .trace-review-row {
+      border: 1px solid #efd7cb;
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+      font-size: 12px;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-main {
+      min-width: 0;
+    }
+    .status-main strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+    .status-meta {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .status-meta span, .dependency-row span, .trace-review-meta span {
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: #fff1e7;
+      border: 1px solid #f0d4c6;
+    }
+    .dependency-row strong,
+    .trace-review-row strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .trace-review-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .trace-review-meta {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 5px;
+    }
     .route-path {
       font-family: Consolas, "Courier New", monospace;
       color: var(--accent-strong);
@@ -296,6 +351,20 @@
       .panel-wide { grid-column: auto; }
       .trace-wrap { max-height: 34vh; }
     }
+    @media (max-width: 720px) {
+      .topbar { padding: 10px; }
+      .title { font-size: 16px; }
+      .brand-logo { width: 36px; height: 36px; border-radius: 10px; }
+      .stats { font-size: 11px; gap: 6px; }
+      .pill { padding: 4px 7px; }
+      #cy { min-height: 42vh; }
+      .side { padding: 10px; gap: 10px; }
+      .panel { padding: 9px; }
+      .kv { font-size: 12px; }
+      .ctrl-grid { grid-template-columns: 1fr; }
+      .trace-table { font-size: 10px; }
+      .trace-wrap { max-height: 28vh; }
+    }
   </style>
 </head>
 <body>
@@ -323,7 +392,7 @@
   <div class="layout">
     <div id="cy"></div>
     <aside class="side">
-      <section class="panel">
+      <section class="panel panel-wide">
         <h3>Service Card</h3>
         <div id="nodeEmpty" class="dim">Select a node from the graph.</div>
         <div id="nodeData" style="display:none">
@@ -359,8 +428,16 @@
             <strong id="nRunq">-</strong>
           </div>
           <div class="kv">
+            <span class="dim label-inline">RunQ %<span class="hint" title="Run queue pressure relative to the fixed threshold. This is supporting evidence only.">i</span></span>
+            <strong id="nRunqPct">-</strong>
+          </div>
+          <div class="kv">
             <span class="dim label-inline">CPU Throttle Ratio<span class="hint" title="Short-window CPU throttling evidence from the container cgroup. This is used with RunQ to judge whether a bottleneck is likely CPU-scaleable.">i</span></span>
             <strong id="nThrottle">-</strong>
+          </div>
+          <div class="kv">
+            <span class="dim label-inline">Throttle %<span class="hint" title="Throttle pressure relative to the configured threshold. This is supporting evidence only.">i</span></span>
+            <strong id="nThrottlePct">-</strong>
           </div>
           <div class="kv">
             <span class="dim label-inline">Health<span class="hint" title="High-level state derived from SLO status and recent activity.">i</span></span>
@@ -384,17 +461,30 @@
       </section>
 
       <section class="panel">
+        <h3>Service Status</h3>
+        <div id="statusRows" class="status-list"></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Dependency Relationships</h3>
+        <div class="kv"><span class="dim">Observed Edges</span><strong id="depCount">-</strong></div>
+        <div id="dependencyRows" class="dependency-list"></div>
+      </section>
+
+      <section class="panel">
         <h3>Active Bottleneck</h3>
         <div class="kv"><span class="dim">Trigger Service</span><strong id="abTrigger">-</strong></div>
         <div class="kv"><span class="dim">Traversal Path</span><strong id="abPath">-</strong></div>
         <div class="kv"><span class="dim">Final Service</span><strong id="abFinalService">-</strong></div>
         <div class="kv"><span class="dim">Bottleneck Type</span><strong id="abType">-</strong></div>
+        <div class="kv"><span class="dim">Local Resource Support</span><strong id="abSupport">-</strong></div>
       </section>
 
       <section class="panel">
         <h3>Traffic Pattern</h3>
         <div class="kv"><span class="dim">Short RPS</span><strong id="tpShortRps">-</strong></div>
         <div class="kv"><span class="dim">Long RPS</span><strong id="tpLongRps">-</strong></div>
+        <div class="kv"><span class="dim">RPS Growth</span><strong id="tpGrowth">-</strong></div>
         <div class="kv"><span class="dim">Pattern</span><strong id="tpPattern">-</strong></div>
         <div class="kv"><span class="dim">SLO Status</span><strong id="tpStatus">-</strong></div>
       </section>
@@ -403,10 +493,12 @@
         <h3>Replica Decision</h3>
         <div class="kv"><span class="dim">Current Replicas</span><strong id="rdCurrent">-</strong></div>
         <div class="kv"><span class="dim">Target Replicas</span><strong id="rdTarget">-</strong></div>
+        <div class="kv"><span class="dim">Target From Traffic</span><strong id="rdTargetTraffic">-</strong></div>
+        <div class="kv"><span class="dim">Target From SLO</span><strong id="rdTargetSlo">-</strong></div>
+        <div class="kv"><span class="dim">Desired Replicas From Traffic</span><strong id="rdDesiredTraffic">-</strong></div>
+        <div class="kv"><span class="dim">Target RPS / Replica</span><strong id="rdTargetRpsReplica">-</strong></div>
         <div class="kv"><span class="dim">Proposed Step</span><strong id="rdStep">-</strong></div>
         <div class="kv"><span class="dim">Actual Applied Change</span><strong id="rdActual">-</strong></div>
-        <div class="kv"><span class="dim">Target RPS / Replica</span><strong id="rdTargetRpsReplica">-</strong></div>
-        <div class="kv"><span class="dim">Desired Replicas From Traffic</span><strong id="rdDesiredTraffic">-</strong></div>
         <div class="kv"><span class="dim">Downscale Step</span><strong id="rdDownscaleStep">-</strong></div>
         <div class="kv"><span class="dim">Downscale Reason</span><strong id="rdDownscaleReason">-</strong></div>
         <div class="kv"><span class="dim">Decision Reason</span><strong id="rdReason">-</strong></div>
@@ -414,22 +506,34 @@
       </section>
 
       <section class="panel panel-wide">
-        <h3>Control Plane</h3>
+        <h3>Live Controls</h3>
 
         <div class="ctrl-grid">
           <label>Route
             <select id="cRoute"></select>
           </label>
-          <label>Requests
-            <input id="cReq" type="number" min="1" value="20000" />
+          <label>Path Override
+            <input id="cPath" placeholder="/catalogue" />
           </label>
-          <label>Concurrency
-            <input id="cConc" type="number" min="1" value="10" />
+          <label>Target RPS
+            <input id="cRps" type="number" min="1" value="25" />
+          </label>
+          <label>Duration (s)
+            <input id="cDuration" type="number" min="1" value="60" />
           </label>
           <label>Base URL
             <input id="cBase" value="http://gateway" />
           </label>
+          <label>Derived Requests
+            <input id="cReq" type="number" min="1" value="1500" />
+          </label>
+          <label>Concurrency
+            <input id="cConc" type="number" min="1" value="5" />
+          </label>
         </div>
+        <div class="kv"><span class="dim">Traffic Target</span><strong id="cTargetUrl">-</strong></div>
+        <div class="kv"><span class="dim">Traffic Profile</span><strong id="cProfile">-</strong></div>
+        <div class="msg dim">Use route or path override, choose an approximate target RPS and duration, then start traffic and watch the trace and replica panels for scale-ups.</div>
         <div class="ctrl-grid" style="margin-top:8px">
           <button id="btnTrafficStart">Start Traffic</button>
           <button id="btnTrafficStop" class="warn">Stop All Traffic Jobs</button>
@@ -490,10 +594,30 @@
         <div class="msg dim">Control actions send the optional operator identity and token headers to the aggregator.</div>
       </section>
 
-      <section class="panel bench-hidden">
+      <section class="panel">
         <h3>Alerts</h3>
         <div id="alertsEmpty" class="dim">No active alerts.</div>
         <div id="alertsRows" class="alert-list" style="display:none"></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <h3>Trace Review</h3>
+        <div class="trace-review-list">
+          <div class="trace-review-row">
+            <strong>Stored Decision Traces</strong>
+            <div class="trace-review-meta">
+              <span id="trCount">Count: -</span>
+              <span id="trScaleUps">Scale up: -</span>
+              <span id="trScaleDowns">Scale down: -</span>
+              <span id="trHolds">Holds: -</span>
+              <span id="trLatest">Latest: -</span>
+            </div>
+          </div>
+          <div class="trace-review-row">
+            <strong>Latest Decision Summary</strong>
+            <div id="trSummary" class="mini dim">No recent decision trace.</div>
+          </div>
+        </div>
       </section>
 
       <section class="panel panel-wide bench-hidden" id="support">
@@ -701,16 +825,20 @@
       document.getElementById("abPath").textContent = trace ? tracePathText(trace) : "-";
       document.getElementById("abFinalService").textContent = trace?.final_bottleneck_service || trace?.service || trace?.node || "-";
       document.getElementById("abType").textContent = trace?.final_bottleneck_type || trace?.final_reason || "-";
+      document.getElementById("abSupport").textContent = trace?.local_resource_support || "-";
       document.getElementById("tpShortRps").textContent = trace ? Number(trace.short_rps || 0).toFixed(2) : "-";
       document.getElementById("tpLongRps").textContent = trace ? Number(trace.long_rps || 0).toFixed(2) : "-";
+      document.getElementById("tpGrowth").textContent = trace ? Number(trace.rps_growth || 0).toFixed(2) : "-";
       document.getElementById("tpPattern").textContent = trace?.traffic_pattern || "-";
       document.getElementById("tpStatus").textContent = trace ? (trace.trigger_breached ? "breached" : (trace.under_pressure ? "near_breach" : "healthy")) : "-";
       document.getElementById("rdCurrent").textContent = trace ? String(Number(trace.current_replicas || 0)) : "-";
       document.getElementById("rdTarget").textContent = trace ? String(Number(trace.target_replicas || 0)) : "-";
+      document.getElementById("rdTargetTraffic").textContent = trace ? String(Number(trace.target_from_traffic || 0)) : "-";
+      document.getElementById("rdTargetSlo").textContent = trace ? String(Number(trace.target_from_slo || 0)) : "-";
+      document.getElementById("rdDesiredTraffic").textContent = trace ? String(Number(trace.desired_replicas_from_traffic || 0)) : "-";
+      document.getElementById("rdTargetRpsReplica").textContent = trace ? Number(trace.target_rps_per_replica || 0).toFixed(2) : "-";
       document.getElementById("rdStep").textContent = trace ? String(Number(trace.proposed_step || trace.applied_scale_step || 0)) : "-";
       document.getElementById("rdActual").textContent = trace ? String(Number(trace.actual_replica_change || 0)) : "-";
-      document.getElementById("rdTargetRpsReplica").textContent = trace ? Number(trace.target_rps_per_replica || 0).toFixed(2) : "-";
-      document.getElementById("rdDesiredTraffic").textContent = trace ? String(Number(trace.desired_replicas_from_traffic || 0)) : "-";
       document.getElementById("rdDownscaleStep").textContent = trace ? String(Number(trace.downscale_step || 0)) : "-";
       document.getElementById("rdDownscaleReason").textContent = trace?.downscale_reason || "-";
       document.getElementById("rdReason").textContent = trace?.reason || "-";
@@ -723,6 +851,8 @@
       const runqThreshold = RUNQ_FALLBACK_THRESHOLD_MS;
       const cpuThrottle = Number(metric.cpu_throttle_ratio || 0);
       const cpuThrottleLong = Number(metric.cpu_throttle_ratio_long || 0);
+      const runqPct = runqThreshold > 0 ? runq / runqThreshold : 0;
+      const throttlePct = 0.10 > 0 ? cpuThrottle / 0.10 : 0;
       const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
       const dependencyDelay = Number(metric.dependency_attributed_latency || 0);
       const externalWait = Number(metric.external_wait_latency || 0);
@@ -746,7 +876,7 @@
         if (controllerReason) actionTag = controllerReason;
       }
       return {
-        p90, latencyValid, runq, runqThreshold, cpuThrottle, cpuThrottleLong, serviceHandling, dependencyDelay,
+        p90, latencyValid, runq, runqThreshold, runqPct, cpuThrottle, throttlePct, cpuThrottleLong, serviceHandling, dependencyDelay,
         externalWait, slo, rps, inactive, violating, actionTag, controllerDecision, controllerReason
       };
     }
@@ -824,6 +954,46 @@
       return routes.find((row) => row.name === selected) || null;
     }
 
+    function selectedTrafficPath() {
+      const override = document.getElementById("cPath").value.trim();
+      if (override) return override.startsWith("/") ? override : `/${override}`;
+      const routeCfg = selectedRouteConfig();
+      if (routeCfg && routeCfg.path) return routeCfg.path;
+      const route = document.getElementById("cRoute").value.trim();
+      return route ? (route.startsWith("/") ? route : `/${route}`) : "/";
+    }
+
+    function estimateConcurrency(rps, duration, requests) {
+      const boundedRequests = Math.max(1, requests);
+      const boundedDuration = Math.max(1, duration);
+      const boundedRps = Math.max(1, rps);
+      const latencyBased = Math.ceil(boundedRps / 5);
+      const durationBased = Math.ceil(boundedRequests / boundedDuration / 4);
+      return Math.max(1, Math.min(boundedRequests, 2000, Math.max(latencyBased, durationBased)));
+    }
+
+    function updateTrafficPlan() {
+      const path = selectedTrafficPath();
+      const baseUrl = document.getElementById("cBase").value.trim();
+      const rps = Math.max(1, Number(document.getElementById("cRps").value || 0));
+      const duration = Math.max(1, Number(document.getElementById("cDuration").value || 0));
+      const derivedRequests = Math.max(1, Math.round(rps * duration));
+      const reqInput = document.getElementById("cReq");
+      const concInput = document.getElementById("cConc");
+      if (reqInput.dataset.userEdited !== "true") {
+        reqInput.value = String(derivedRequests);
+      }
+      if (concInput.dataset.userEdited !== "true") {
+        concInput.value = String(estimateConcurrency(rps, duration, derivedRequests));
+      }
+      const requests = Math.max(1, Number(reqInput.value || derivedRequests));
+      const concurrency = Math.max(1, Number(concInput.value || estimateConcurrency(rps, duration, derivedRequests)));
+      const targetUrl = `${baseUrl.replace(/\/$/, "")}${path}`;
+      document.getElementById("cTargetUrl").textContent = targetUrl || "-";
+      document.getElementById("cProfile").textContent = `Approx ${rps.toFixed(0)} RPS for ${duration}s using ${requests} requests at concurrency ${concurrency}`;
+      return { path, rps, duration, requests, concurrency, targetUrl };
+    }
+
     function fillRouteSelect(routes, preferred = "") {
       const select = document.getElementById("cRoute");
       select.innerHTML = "";
@@ -840,6 +1010,7 @@
       } else if (rows.length) {
         select.value = rows[0].name || rows[0].path || "";
       }
+      updateTrafficPlan();
     }
 
     function updateTrafficBaseSuggestion(baseUrl) {
@@ -852,6 +1023,7 @@
         input.value = suggested;
       }
       input.dataset.suggestedBase = suggested;
+      updateTrafficPlan();
     }
 
     function renderDeploymentContext() {
@@ -881,6 +1053,70 @@
       }
 
       updateTrafficBaseSuggestion(trafficBaseUrl);
+    }
+
+    function renderServiceStatus(data) {
+      const wrap = document.getElementById("statusRows");
+      wrap.innerHTML = "";
+      const metrics = data.metrics || {};
+      const rows = Object.entries(metrics).sort((a, b) => a[0].localeCompare(b[0]));
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "dim";
+        empty.textContent = "No service metrics available yet.";
+        wrap.appendChild(empty);
+        return;
+      }
+      for (const [svc, metric] of rows) {
+        const s = classify(svc, metric);
+        const dep = deploymentMap()[svc] || {};
+        const row = document.createElement("div");
+        row.className = "status-row";
+        const healthText = s.inactive ? "Inactive" : (s.violating ? "Violating" : "Healthy");
+        const healthClass = s.inactive ? "idle" : (s.violating ? "violating" : "healthy");
+        row.innerHTML = `
+          <div class="status-main">
+            <strong>${escapeHtml(svc)}</strong>
+            <div class="mini">${escapeHtml(s.controllerDecision || s.actionTag || "No recent controller trace")}</div>
+            <div class="status-meta">
+              <span>P90: ${escapeHtml(s.latencyValid ? `${s.p90.toFixed(2)}ms` : "N/A")}</span>
+              <span>RPS: ${escapeHtml(s.rps.toFixed(2))}</span>
+              <span>Replicas: ${escapeHtml(String(Number(dep.spec_replicas || 0)))}</span>
+            </div>
+          </div>
+          <strong class="${healthClass}">${escapeHtml(healthText)}</strong>
+        `;
+        wrap.appendChild(row);
+      }
+    }
+
+    function renderDependencies(data) {
+      const wrap = document.getElementById("dependencyRows");
+      wrap.innerHTML = "";
+      const topology = data.topology || {};
+      const edges = [];
+      for (const [src, dsts] of Object.entries(topology)) {
+        for (const dst of (dsts || [])) edges.push(`${src}->${dst}`);
+      }
+      edges.sort();
+      document.getElementById("depCount").textContent = String(edges.length);
+      if (!edges.length) {
+        const empty = document.createElement("div");
+        empty.className = "dim";
+        empty.textContent = "No dependency relationships observed yet.";
+        wrap.appendChild(empty);
+        return;
+      }
+      for (const edge of edges) {
+        const [src, dst] = edge.split("->");
+        const row = document.createElement("div");
+        row.className = "dependency-row";
+        row.innerHTML = `
+          <strong>${escapeHtml(edge)}</strong>
+          <div class="mini">${escapeHtml(src)} depends on ${escapeHtml(dst)} during observed runtime traffic.</div>
+        `;
+        wrap.appendChild(row);
+      }
     }
 
     function renderReplicaStatus() {
@@ -918,6 +1154,26 @@
       }
     }
 
+    function renderTraceReview(data) {
+      const rows = (data.traces || [])
+        .slice()
+        .sort((a, b) => Number(b.ts_unix_ms || 0) - Number(a.ts_unix_ms || 0))
+        .slice(0, 120);
+      const scaleUps = rows.filter((t) => String(t.decision || "") === "scale_up").length;
+      const scaleDowns = rows.filter((t) => String(t.decision || "") === "scale_down").length;
+      const holds = rows.filter((t) => String(t.decision || "") === "no_scale").length;
+      const latest = rows[0] || null;
+      document.getElementById("trCount").textContent = `Count: ${rows.length}`;
+      document.getElementById("trScaleUps").textContent = `Scale up: ${scaleUps}`;
+      document.getElementById("trScaleDowns").textContent = `Scale down: ${scaleDowns}`;
+      document.getElementById("trHolds").textContent = `Holds: ${holds}`;
+      document.getElementById("trLatest").textContent = `Latest: ${latest?.ts_unix_ms ? new Date(latest.ts_unix_ms).toLocaleTimeString() : "--"}`;
+      const summary = latest
+        ? `${latest.trigger_service || "-"} -> ${tracePathText(latest)} | ${latest.final_bottleneck_type || latest.final_reason || "-"} | ${traceDecisionLabel(latest) || latest.decision || "-"} | blocked by ${blockedByLabel(latest.blocked_by) || "nothing"}`
+        : "No recent decision trace.";
+      document.getElementById("trSummary").textContent = summary;
+    }
+
     function nodeLabel(id, s) {
       const sloText = s.slo > 0 ? s.slo.toFixed(1) : "-";
       const p90Text = s.latencyValid ? `${s.p90.toFixed(1)}ms` : "N/A";
@@ -933,7 +1189,9 @@
       document.getElementById("nReplicaBounds").textContent = dep.slo ? `${Number(dep.slo.minReplicas || 0)} .. ${Number(dep.slo.maxReplicas || 0)}` : "N/A";
       document.getElementById("nP90").textContent = s.latencyValid ? s.p90.toFixed(3) : "N/A";
       document.getElementById("nRunq").textContent = `${s.runq.toFixed(3)} / ${s.runqThreshold.toFixed(3)}`;
+      document.getElementById("nRunqPct").textContent = `${(s.runqPct * 100).toFixed(0)}%`;
       document.getElementById("nThrottle").textContent = s.cpuThrottle.toFixed(4);
+      document.getElementById("nThrottlePct").textContent = `${(s.throttlePct * 100).toFixed(0)}%`;
       document.getElementById("nHandle").textContent = s.serviceHandling.toFixed(3);
       document.getElementById("nDep").textContent = s.dependencyDelay.toFixed(3);
       document.getElementById("nExternal").textContent = s.externalWait.toFixed(3);
@@ -1040,6 +1298,9 @@
       document.getElementById("sViolating").textContent = `Violating: ${violating}`;
       document.getElementById("sIdle").textContent = `Inactive: ${inactive}`;
       document.getElementById("sUpdated").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+      renderServiceStatus(data);
+      renderDependencies(data);
+      renderAlerts(data);
     }
 
     function renderTraces(data) {
@@ -1071,13 +1332,14 @@
           <td>${escapeHtml(t.traffic_pattern || "-")}</td>
           <td>${Number(t.short_rps || 0).toFixed(1)} / ${Number(t.long_rps || 0).toFixed(1)}</td>
           <td>${Number(t.current_replicas || 0)} -> ${Number(t.target_replicas || 0)}</td>
-          <td>${Number(t.desired_replicas_from_traffic || 0)}</td>
+          <td>${Number(t.target_from_traffic || t.desired_replicas_from_traffic || 0)} / ${Number(t.target_from_slo || 0)}</td>
           <td>${escapeHtml(traceDecisionLabel(t) || t.action || "-")}</td>
           <td>${escapeHtml(blockedByLabel(t.blocked_by) || "-")}</td>
         `;
         tbody.appendChild(tr);
       }
       renderActiveDecision();
+      renderTraceReview({ traces: rows });
     }
 
     function buildAlerts(data) {
@@ -1409,18 +1671,32 @@
     document.getElementById("controlToken").addEventListener("input", persistControlPrefs);
     document.getElementById("cBase").addEventListener("input", () => {
       document.getElementById("cBase").dataset.userEdited = "true";
+      updateTrafficPlan();
+    });
+    document.getElementById("cRoute").addEventListener("change", updateTrafficPlan);
+    document.getElementById("cPath").addEventListener("input", updateTrafficPlan);
+    document.getElementById("cRps").addEventListener("input", updateTrafficPlan);
+    document.getElementById("cDuration").addEventListener("input", updateTrafficPlan);
+    document.getElementById("cReq").addEventListener("input", () => {
+      document.getElementById("cReq").dataset.userEdited = "true";
+      updateTrafficPlan();
+    });
+    document.getElementById("cConc").addEventListener("input", () => {
+      document.getElementById("cConc").dataset.userEdited = "true";
+      updateTrafficPlan();
     });
 
     document.getElementById("btnTrafficStart").addEventListener("click", async () => {
       const routeCfg = selectedRouteConfig();
       const route = (routeCfg && routeCfg.name) || document.getElementById("cRoute").value;
-      const path = (routeCfg && routeCfg.path) || `/${route}`;
-      const requests = Number(document.getElementById("cReq").value || 0);
-      const concurrency = Number(document.getElementById("cConc").value || 0);
+      const plan = updateTrafficPlan();
+      const path = plan.path;
+      const requests = plan.requests;
+      const concurrency = plan.concurrency;
       const base_url = document.getElementById("cBase").value.trim();
       try {
         const data = await postJson(CONTROL_TRAFFIC_START_URL, { route, path, requests, concurrency, base_url });
-        setControlMsg(`Traffic job started: ${data.job} -> ${data.target_url}`);
+        setControlMsg(`Traffic job started: ${data.job} -> ${data.target_url} | approx ${plan.rps.toFixed(0)} rps for ${plan.duration}s`);
       } catch (err) {
         setControlMsg(`Traffic start failed: ${err.message}`, true);
       }
@@ -1511,6 +1787,7 @@
         setTicketMsg(`Ticket update failed: ${err.message}`, true);
       }
     });
+    updateTrafficPlan();
   </script>
 </body>
 </html>

@@ -1,0 +1,14 @@
+[
+  {
+    "last_terminated_reasons": [],
+    "name": "carts-5c66b4bcd4-jldfk",
+    "ready": true,
+    "restart_count": 0
+  },
+  {
+    "last_terminated_reasons": [],
+    "name": "carts-db-575c775798-sk9v2",
+    "ready": true,
+    "restart_count": 0
+  }
+]

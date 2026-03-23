@@ -1,0 +1,142 @@
+{
+  "case_name": "SSBR2_downstream_delay_customers",
+  "client": {
+    "failed_responses": 0,
+    "p90_latency_ms": 324.319,
+    "success_rps": 3.602,
+    "successful_responses": 217
+  },
+  "detection": {
+    "detected_bottleneck_service": "user",
+    "detected_leaf_reason_class": "local_cpu_pressure",
+    "detected_path_reason_class": "downstream_delay",
+    "detected_reason_class": "downstream_delay",
+    "detected_top_level_reason_class": "downstream_delay",
+    "evaluated_reason_class": "downstream_delay",
+    "path": [
+      "front-end",
+      "user"
+    ],
+    "reason_detail": "local_cpu_pressure",
+    "reason_scope_used": "top_level"
+  },
+  "expected": {
+    "bottleneck_service": "user",
+    "leaf_reason_class": "",
+    "path_reason_class": "downstream_delay",
+    "reason_class": "downstream_delay"
+  },
+  "graph": {
+    "evaluation_window_seconds": 40,
+    "expected_edges": [
+      "front-end->user"
+    ],
+    "matching_snapshots": 7,
+    "observed_edges": [
+      "front-end->user",
+      "user->user-db"
+    ],
+    "pass": true,
+    "total_snapshots": 7
+  },
+  "mode": "observation",
+  "pass_fail": {
+    "leaf_reason_pass": null,
+    "max_reason_consecutive_loops": 7,
+    "max_service_consecutive_loops": 7,
+    "overall_pass": true,
+    "path_reason_pass": true,
+    "reason_pass": true,
+    "reason_stability_pass": true,
+    "service_identification_pass": true,
+    "service_pass": true,
+    "service_stability_pass": true
+  },
+  "phase_name": "bottleneck_reason_sockshop",
+  "platform": {
+    "front-end": {
+      "cpu_throttle_ratio": 0.0,
+      "dependency_attributed_latency": 311.051,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 318.267,
+      "rps": 4.35,
+      "runq_p90_latency": 5.289,
+      "service_handling_latency": 7.216
+    },
+    "user": {
+      "cpu_throttle_ratio": 1.0,
+      "dependency_attributed_latency": 0.0,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 309.358,
+      "rps": 3.65,
+      "runq_p90_latency": 69.607,
+      "service_handling_latency": 309.358
+    }
+  },
+  "slo_setup": {
+    "namespace": "sock-shop",
+    "ok": true,
+    "replica_bounds": {
+      "maxReplicas": 5,
+      "minReplicas": 1
+    },
+    "service_slos": {
+      "sockshop-carts-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 150.0,
+        "targetDeployment": "carts"
+      },
+      "sockshop-catalogue-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 3.0,
+        "targetDeployment": "catalogue"
+      },
+      "sockshop-front-end-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "primary",
+        "sloLatency": 50.0,
+        "targetDeployment": "front-end"
+      },
+      "sockshop-orders-slo": {
+        "maxReplicas": 6,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "orders"
+      },
+      "sockshop-payment-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "payment"
+      },
+      "sockshop-shipping-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "shipping"
+      },
+      "sockshop-user-slo": {
+        "maxReplicas": 6,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 30.0,
+        "targetDeployment": "user"
+      }
+    }
+  }
+}

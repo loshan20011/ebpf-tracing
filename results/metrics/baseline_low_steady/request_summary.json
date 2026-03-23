@@ -1,19 +1,19 @@
 {
   "base_url": "http://127.0.0.1:30001",
   "case_name": "baseline_low_steady",
-  "client_p90_latency_ms": 20.082,
-  "config_path": "src/scripts/evaluation/cases/baseline_low_steady.json",
-  "duration_seconds": 540.381,
-  "ended_at_unix_ms": 1774104611969,
-  "failed_responses": 80,
+  "client_p90_latency_ms": 19.66,
+  "config_path": "/home/ubuntu/thrive-scale-src-20260321/src/scripts/metrics/cases/baseline_low_steady.json",
+  "duration_seconds": 63.987,
+  "ended_at_unix_ms": 1774290529837,
+  "failed_responses": 11,
   "route_counts": {
-    "cart_get": 104,
-    "cart_post": 76,
-    "catalogue_get": 280,
-    "login_get": 80
+    "cart_get": 10,
+    "cart_post": 5,
+    "catalogue_get": 34,
+    "login_get": 11
   },
-  "sent_requests": 540,
-  "started_at_unix_ms": 1774104071585,
-  "success_rps": 0.851,
-  "successful_responses": 460
+  "sent_requests": 60,
+  "started_at_unix_ms": 1774290465849,
+  "success_rps": 0.766,
+  "successful_responses": 49
 }

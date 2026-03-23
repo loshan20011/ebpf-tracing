@@ -159,6 +159,9 @@ def run_traffic(config: dict, case_dir: Path) -> None:
     latencies = []
     with request_log_path.open("r", encoding="utf-8") as handle:
         for line in handle:
+            line = line.strip()
+            if not line:
+                continue
             row = json.loads(line)
             if row.get("success"):
                 latencies.append(float(row.get("latency_ms", 0.0)))

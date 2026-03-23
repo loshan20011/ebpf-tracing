@@ -1,0 +1,5 @@
+{
+  "front-end": {"min": 1, "max": 10},
+  "user": {"min": 1, "max": 13},
+  "carts": {"min": 1, "max": 13}
+}

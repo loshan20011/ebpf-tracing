@@ -1,0 +1,121 @@
+{
+  "aggregator_base_url": "http://127.0.0.1:30938",
+  "aggregator_observation_thresholds": {
+    "aggregator": {
+      "EBPF_REQ_MIN_COUNT": "5",
+      "EBPF_REQ_MIN_NET_SAMPLES": "5",
+      "EBPF_REQ_MIN_RPS": "0.25",
+      "EBPF_REQ_MIN_RUNQ_SAMPLES": "5",
+      "FUNCTIONAL_TEST_MODE": "true"
+    },
+    "bpf_agent": {
+      "CMDLINE_SERVICE_FALLBACK_ENABLED": "false",
+      "FUNCTIONAL_TEST_MODE": "true",
+      "RUNQ_MIN_US": "2000"
+    },
+    "controller": {}
+  },
+  "case_config": "/home/ubuntu/thrive-scale-src-20260321/src/scripts/bottleneck_identification/cases/BR1_local_cpu_pressure.json",
+  "case_name": "BR1_local_cpu_pressure",
+  "collection_ended_at_unix_ms": 1774291509905,
+  "collection_started_at_unix_ms": 1774291414985,
+  "controller_mode_applied": true,
+  "controller_target_replicas": 0,
+  "duration_seconds": 90,
+  "interval_seconds": 5,
+  "mode": "observation",
+  "namespace": "thrive-demo",
+  "prepared_at_unix_ms": 1774291379985,
+  "replicas_restored": true,
+  "requested_initial_replicas": {
+    "gateway": 1,
+    "svc-chain": 1,
+    "svc-cpu": 1,
+    "svc-fanout": 1,
+    "svc-io": 1,
+    "svc-mem": 1,
+    "svc-net": 1
+  },
+  "reset_response": {
+    "ok": true,
+    "runq_learning_enabled": false
+  },
+  "restart_after_reset": true,
+  "restarted_deployments": [
+    "gateway",
+    "svc-chain",
+    "svc-cpu",
+    "svc-fanout",
+    "svc-io",
+    "svc-mem",
+    "svc-net"
+  ],
+  "skip_prepare": false,
+  "slo_setup": {
+    "downstream_confirmed_ok": true,
+    "downstream_slos": {
+      "chain-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 12.0,
+        "targetDeployment": "svc-chain"
+      },
+      "cpu-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 10.0,
+        "targetDeployment": "svc-cpu"
+      },
+      "fanout-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 100.0,
+        "targetDeployment": "svc-fanout"
+      },
+      "io-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 100.0,
+        "targetDeployment": "svc-io"
+      }
+    },
+    "gateway_confirmed": {
+      "maxReplicas": 5,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 10.0,
+      "targetDeployment": "gateway"
+    },
+    "gateway_confirmed_ok": true,
+    "gateway_patch_applied": true,
+    "gateway_slo_latency": 10.0,
+    "namespace": "thrive-demo",
+    "ok": true,
+    "replica_bounds": {
+      "maxReplicas": 5,
+      "minReplicas": 1
+    },
+    "route_path": "/cpu?count=60000000"
+  },
+  "started_at_unix_ms": 1774291369887,
+  "system_target": {
+    "aggregator": {
+      "TARGET_NAMESPACE": "thrive-demo"
+    },
+    "bpf_agent": {
+      "TARGET_NAMESPACE": "thrive-demo"
+    },
+    "controller": {
+      "ROOT_SERVICE": "gateway",
+      "TARGET_NAMESPACE": "thrive-demo"
+    }
+  }
+}

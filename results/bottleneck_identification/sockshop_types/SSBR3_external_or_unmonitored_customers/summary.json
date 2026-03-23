@@ -1,0 +1,129 @@
+{
+  "case_name": "SSBR3_external_or_unmonitored_customers",
+  "client": {
+    "failed_responses": 2,
+    "p90_latency_ms": 303.22,
+    "success_rps": 3.313,
+    "successful_responses": 199
+  },
+  "detection": {
+    "detected_bottleneck_service": "front-end",
+    "detected_leaf_reason_class": "local_unclear_or_non_cpu",
+    "detected_path_reason_class": null,
+    "detected_reason_class": "local_unclear_or_non_cpu",
+    "detected_top_level_reason_class": "local_bottleneck",
+    "evaluated_reason_class": "local_bottleneck",
+    "path": [
+      "front-end"
+    ],
+    "reason_detail": "fallback_unclear",
+    "reason_scope_used": "top_level"
+  },
+  "expected": {
+    "bottleneck_service": "front-end",
+    "leaf_reason_class": "external_or_unmonitored_delay",
+    "path_reason_class": "",
+    "reason_class": "external_or_unmonitored_delay"
+  },
+  "graph": {
+    "evaluation_window_seconds": 40,
+    "expected_edges": [
+      "front-end->user"
+    ],
+    "matching_snapshots": 0,
+    "observed_edges": [],
+    "pass": false,
+    "total_snapshots": 0
+  },
+  "mode": "observation",
+  "pass_fail": {
+    "leaf_reason_pass": false,
+    "max_reason_consecutive_loops": 0,
+    "max_service_consecutive_loops": 0,
+    "overall_pass": false,
+    "path_reason_pass": null,
+    "reason_pass": false,
+    "reason_stability_pass": false,
+    "service_identification_pass": true,
+    "service_pass": true,
+    "service_stability_pass": false
+  },
+  "phase_name": "bottleneck_reason_sockshop",
+  "platform": {
+    "front-end": {
+      "cpu_throttle_ratio": 0.0,
+      "dependency_attributed_latency": 0.0,
+      "external_wait_latency": 0.0,
+      "platform_p90_ms": 0.0,
+      "rps": 0.0,
+      "runq_p90_latency": 0.0,
+      "service_handling_latency": 0.0
+    }
+  },
+  "slo_setup": {
+    "namespace": "sock-shop",
+    "ok": true,
+    "replica_bounds": {
+      "maxReplicas": 5,
+      "minReplicas": 1
+    },
+    "service_slos": {
+      "sockshop-carts-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 150.0,
+        "targetDeployment": "carts"
+      },
+      "sockshop-catalogue-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 3.0,
+        "targetDeployment": "catalogue"
+      },
+      "sockshop-front-end-slo": {
+        "maxReplicas": 8,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "primary",
+        "sloLatency": 50.0,
+        "targetDeployment": "front-end"
+      },
+      "sockshop-orders-slo": {
+        "maxReplicas": 6,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "orders"
+      },
+      "sockshop-payment-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "payment"
+      },
+      "sockshop-shipping-slo": {
+        "maxReplicas": 5,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 8.0,
+        "targetDeployment": "shipping"
+      },
+      "sockshop-user-slo": {
+        "maxReplicas": 6,
+        "minReplicas": 1,
+        "patched": true,
+        "priority": "secondary",
+        "sloLatency": 150.0,
+        "targetDeployment": "user"
+      }
+    }
+  }
+}

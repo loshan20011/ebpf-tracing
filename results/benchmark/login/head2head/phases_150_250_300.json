@@ -1,0 +1,17 @@
+[
+  {
+    "name": "warm",
+    "duration_seconds": 60,
+    "rps": 150
+  },
+  {
+    "name": "pressure",
+    "duration_seconds": 120,
+    "rps": 250
+  },
+  {
+    "name": "peak",
+    "duration_seconds": 120,
+    "rps": 300
+  }
+]

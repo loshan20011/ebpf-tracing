@@ -1,0 +1,36 @@
+{
+  "error_pattern_count": 0,
+  "pods": [
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-bxs9r"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-dwl4r"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-glh7s"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-jldfk"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-mtm5v"
+    },
+    {
+      "matched_line_count": 0,
+      "matched_lines": [],
+      "name": "carts-5c66b4bcd4-tzkqd"
+    }
+  ],
+  "since_seconds": 1020
+}

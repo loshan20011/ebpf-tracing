@@ -1,0 +1,30 @@
+{
+  "case_name": "F4_graph_customers",
+  "base_url": "http://127.0.0.1:30001",
+  "random_seed": 19,
+  "initial_replicas": {
+    "front-end": 1,
+    "catalogue": 1,
+    "carts": 1,
+    "orders": 1,
+    "user": 1,
+    "payment": 1,
+    "shipping": 1
+  },
+  "routes": {
+    "customers_get": {
+      "method": "GET",
+      "path": "/customers"
+    }
+  },
+  "phases": [
+    {
+      "name": "customers_only_low",
+      "duration_seconds": 60,
+      "rps": 10.0,
+      "route_mix": {
+        "customers_get": 1.0
+      }
+    }
+  ]
+}

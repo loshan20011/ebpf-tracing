@@ -1,0 +1,15 @@
+{
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BR3_external_delay",
+  "client_p90_latency_ms": 521.224,
+  "duration_seconds": 90.058,
+  "ended_at_unix_ms": 1774291778518,
+  "failed_responses": 0,
+  "route_counts": {
+    "net_external": 351
+  },
+  "sent_requests": 351,
+  "started_at_unix_ms": 1774291688460,
+  "success_rps": 3.897,
+  "successful_responses": 351
+}

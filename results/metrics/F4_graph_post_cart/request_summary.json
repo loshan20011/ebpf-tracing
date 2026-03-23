@@ -1,16 +1,16 @@
 {
   "base_url": "http://127.0.0.1:30001",
   "case_name": "F4_graph_post_cart",
-  "client_p90_latency_ms": 28.035,
-  "config_path": "src/scripts/evaluation/cases/cart_post_only_low.json",
-  "duration_seconds": 180.001,
-  "ended_at_unix_ms": 1774105401095,
+  "client_p90_latency_ms": 48.787,
+  "config_path": "/home/ubuntu/thrive-scale-src-20260321/src/scripts/metrics/cases/cart_post_only_low.json",
+  "duration_seconds": 63.473,
+  "ended_at_unix_ms": 1774288829408,
   "failed_responses": 0,
   "route_counts": {
-    "cart_post": 90
+    "cart_post": 473
   },
-  "sent_requests": 90,
-  "started_at_unix_ms": 1774105221094,
-  "success_rps": 0.5,
-  "successful_responses": 90
+  "sent_requests": 473,
+  "started_at_unix_ms": 1774288765930,
+  "success_rps": 7.452,
+  "successful_responses": 473
 }

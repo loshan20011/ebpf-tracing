@@ -19,6 +19,11 @@ LOCAL_FRACTION_MIN = 0.40
 DEPENDENCY_FRACTION_MAX = 0.50
 EVALUATION_WINDOW_SECONDS = 40
 MIN_CONSECUTIVE_MATCH_LOOPS = 2
+TOP_LEVEL_REASON_CLASSES = {
+    "local_bottleneck",
+    "downstream_delay",
+    "external_or_unmonitored_delay",
+}
 
 
 def load_json(path: Path) -> dict:
@@ -443,6 +448,18 @@ def detect_bottleneck(metrics: dict, topology: dict, root: str, monitored: set[s
         }
 
 
+def top_level_reason_class(detection: dict) -> str:
+    path_reason = str(detection.get("path_reason_class") or "")
+    leaf_reason = str(detection.get("leaf_reason_class") or "")
+    if leaf_reason == "external_or_unmonitored_delay":
+        return "external_or_unmonitored_delay"
+    if path_reason == "downstream_delay":
+        return "downstream_delay"
+    if leaf_reason in {"local_cpu_pressure", "local_unclear_or_non_cpu", "local_bottleneck"}:
+        return "local_bottleneck"
+    return leaf_reason or str(detection.get("reason_class") or "")
+
+
 def summarize(case_dir: Path, phase_name: str) -> dict:
     case_config = load_json(case_dir / "case_config.json")
     request_summary = load_json(case_dir / "request_summary.json")
@@ -541,7 +558,11 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
 
     path_reason = str(detection.get("path_reason_class") or "")
     leaf_reason = str(detection.get("leaf_reason_class") or "")
-    if expected_reason == "downstream_delay":
+    detected_top_level_reason = top_level_reason_class(detection)
+    if expected_reason in TOP_LEVEL_REASON_CLASSES:
+        evaluated_reason = detected_top_level_reason
+        reason_scope_used = "top_level"
+    elif expected_reason == "downstream_delay":
         evaluated_reason = path_reason or str(detection["reason_class"])
         reason_scope_used = "path"
     else:
@@ -581,6 +602,7 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         "detection": {
             "detected_bottleneck_service": detection["bottleneck_service"],
             "detected_reason_class": detection["reason_class"],
+            "detected_top_level_reason_class": detected_top_level_reason,
             "detected_path_reason_class": detection.get("path_reason_class"),
             "detected_leaf_reason_class": detection.get("leaf_reason_class"),
             "evaluated_reason_class": evaluated_reason,

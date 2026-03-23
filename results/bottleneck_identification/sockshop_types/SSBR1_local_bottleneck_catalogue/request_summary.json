@@ -1,0 +1,15 @@
+{
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "SSBR1_local_bottleneck_catalogue",
+  "client_p90_latency_ms": 5.218,
+  "duration_seconds": 60.006,
+  "ended_at_unix_ms": 1774293721347,
+  "failed_responses": 0,
+  "route_counts": {
+    "catalogue_get": 600
+  },
+  "sent_requests": 600,
+  "started_at_unix_ms": 1774293661341,
+  "success_rps": 9.999,
+  "successful_responses": 600
+}

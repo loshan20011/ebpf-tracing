@@ -1,0 +1,15 @@
+{
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BR2_downstream_delay",
+  "client_p90_latency_ms": 76.407,
+  "duration_seconds": 90.013,
+  "ended_at_unix_ms": 1774291643109,
+  "failed_responses": 0,
+  "route_counts": {
+    "chain_hot_child": 900
+  },
+  "sent_requests": 900,
+  "started_at_unix_ms": 1774291553096,
+  "success_rps": 9.999,
+  "successful_responses": 900
+}

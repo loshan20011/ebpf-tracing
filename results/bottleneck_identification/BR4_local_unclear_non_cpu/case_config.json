@@ -1,0 +1,55 @@
+{
+  "analysis": {
+    "monitored_services": [
+      "gateway",
+      "svc-io"
+    ],
+    "root_service": "gateway"
+  },
+  "base_url": "http://172.31.32.23:80",
+  "case_name": "BR4_local_unclear_non_cpu",
+  "collector_duration_seconds": 90,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 90,
+  "expected": {
+    "bottleneck_service": "svc-io",
+    "graph_edges": [
+      "gateway->svc-io"
+    ],
+    "leaf_reason_class": "local_unclear_or_non_cpu",
+    "path_reason_class": "downstream_delay",
+    "reason_class": "local_unclear_or_non_cpu"
+  },
+  "initial_replicas": {
+    "gateway": 1,
+    "svc-chain": 1,
+    "svc-cpu": 1,
+    "svc-fanout": 1,
+    "svc-io": 1,
+    "svc-mem": 1,
+    "svc-net": 1
+  },
+  "interval_seconds": 5,
+  "mode": "observation",
+  "namespace": "thrive-demo",
+  "phase_name": "bottleneck_reason",
+  "phases": [
+    {
+      "duration_seconds": 90,
+      "name": "steady",
+      "route_mix": {
+        "io_edge": 1.0
+      },
+      "rps": 10.0
+    }
+  ],
+  "random_seed": 7,
+  "routes": {
+    "io_edge": {
+      "method": "GET",
+      "path": "/io"
+    }
+  },
+  "stabilization_seconds": 35,
+  "system_namespace": "thrive-scale"
+}

@@ -1,0 +1,6 @@
+| Case | Expected Service | Actual Service | Service Pass | Service Stable | Expected Reason | Evaluated Reason | Reason Pass | Reason Stable | Expected Path | Path Reason | Path Pass | Expected Leaf | Leaf Reason | Leaf Pass | Overall |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| BR1_local_cpu_pressure | svc-cpu | svc-cpu | PASS | PASS | local_cpu_pressure | local_cpu_pressure | PASS | PASS | downstream_delay | downstream_delay | PASS | local_cpu_pressure | local_cpu_pressure | PASS | PASS |
+| BR2_downstream_delay | svc-cpu | svc-cpu | PASS | PASS | downstream_delay | downstream_delay | PASS | PASS | downstream_delay | downstream_delay | PASS | local_cpu_pressure | local_cpu_pressure | PASS | PASS |
+| BR3_external_delay | svc-net | svc-net | PASS | PASS | external_or_unmonitored_delay | external_or_unmonitored_delay | PASS | PASS |  | downstream_delay |  | external_or_unmonitored_delay | external_or_unmonitored_delay | PASS | PASS |
+| BR4_local_unclear_non_cpu | svc-io | svc-io | PASS | PASS | local_unclear_or_non_cpu | local_unclear_or_non_cpu | PASS | PASS | downstream_delay | downstream_delay | PASS | local_unclear_or_non_cpu | local_unclear_or_non_cpu | PASS | PASS |

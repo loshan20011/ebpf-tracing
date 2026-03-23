@@ -1,0 +1,5 @@
+{
+  "front-end": {"cpu_request": "100m", "cpu_limit": "500m", "memory_request": "128Mi", "memory_limit": "256Mi"},
+  "user": {"cpu_request": "100m", "cpu_limit": "300m", "memory_request": "128Mi", "memory_limit": "256Mi"},
+  "carts": {"cpu_request": "300m", "cpu_limit": "600m", "memory_request": "512Mi", "memory_limit": "1Gi"}
+}

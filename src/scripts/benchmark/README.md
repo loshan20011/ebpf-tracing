@@ -3,7 +3,7 @@ Benchmark scripts:
 - `run_final_login_benchmark.sh`: frozen final Sock Shop benchmark runner for `hpa50`, `hpa75`, and `thrivescale`
 - `run_simple_login_benchmark.py`: execute one fixed `/login` benchmark arm and save per-window client and replica metrics
 - `seed_login_users.py`: create reusable `/login` users through `/register`
-- `calibrate_login_rps.py`: legacy helper, not used by the final frozen benchmark
+- `legacy/calibrate_login_rps.py`: legacy helper, kept only for reference and not used by the frozen final benchmark
 
 Final benchmark flow:
 
@@ -20,6 +20,8 @@ Final result folders:
 - `results/benchmark/login/hpa50`
 - `results/benchmark/login/hpa75`
 - `results/benchmark/login/thrivescale`
+
+Keep any future benchmark outputs inside those arm folders instead of creating ad-hoc folders under `results/benchmark`.
 
 Carts validity:
 

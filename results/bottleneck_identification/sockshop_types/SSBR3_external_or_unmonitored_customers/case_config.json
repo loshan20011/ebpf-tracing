@@ -1,0 +1,63 @@
+{
+  "analysis": {
+    "monitored_services": [
+      "front-end"
+    ],
+    "root_service": "front-end"
+  },
+  "base_url": "http://127.0.0.1:30001",
+  "case_name": "SSBR3_external_or_unmonitored_customers",
+  "collector_duration_seconds": 60,
+  "controller_deployment": "custom-autoscaler",
+  "duration_seconds": 60,
+  "expected": {
+    "bottleneck_service": "front-end",
+    "graph_edges": [
+      "front-end->user"
+    ],
+    "leaf_reason_class": "external_or_unmonitored_delay",
+    "reason_class": "external_or_unmonitored_delay"
+  },
+  "initial_replicas": {
+    "carts": 1,
+    "catalogue": 1,
+    "front-end": 1,
+    "orders": 1,
+    "payment": 1,
+    "shipping": 1,
+    "user": 1
+  },
+  "interval_seconds": 5,
+  "mode": "observation",
+  "namespace": "sock-shop",
+  "phase_name": "bottleneck_reason_sockshop",
+  "phases": [
+    {
+      "duration_seconds": 60,
+      "name": "steady",
+      "route_mix": {
+        "customers_get": 1.0
+      },
+      "rps": 10.0
+    }
+  ],
+  "random_seed": 7,
+  "restart_after_reset": false,
+  "routes": {
+    "customers_get": {
+      "method": "GET",
+      "path": "/customers"
+    }
+  },
+  "service_slos": {
+    "sockshop-front-end-slo": {
+      "maxReplicas": 8,
+      "minReplicas": 1,
+      "priority": "primary",
+      "sloLatency": 50.0,
+      "targetDeployment": "front-end"
+    }
+  },
+  "stabilization_seconds": 15,
+  "system_namespace": "thrive-scale"
+}
