@@ -450,7 +450,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Deployment Context</h3>
         <div class="kv"><span class="dim">Deployed System</span><strong id="ctxSystem">-</strong></div>
         <div class="kv"><span class="dim">App Namespace</span><strong id="ctxNamespace">-</strong></div>
@@ -460,12 +460,12 @@
         <div id="routeRows" class="route-list"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Service Status</h3>
         <div id="statusRows" class="status-list"></div>
       </section>
 
-      <section class="panel panel-wide">
+      <section class="panel panel-wide bench-hidden">
         <h3>Dependency Relationships</h3>
         <div class="kv"><span class="dim">Observed Edges</span><strong id="depCount">-</strong></div>
         <div id="dependencyRows" class="dependency-list"></div>
@@ -495,17 +495,12 @@
         <div class="kv"><span class="dim">Target Replicas</span><strong id="rdTarget">-</strong></div>
         <div class="kv"><span class="dim">Target From Traffic</span><strong id="rdTargetTraffic">-</strong></div>
         <div class="kv"><span class="dim">Target From SLO</span><strong id="rdTargetSlo">-</strong></div>
-        <div class="kv"><span class="dim">Desired Replicas From Traffic</span><strong id="rdDesiredTraffic">-</strong></div>
-        <div class="kv"><span class="dim">Target RPS / Replica</span><strong id="rdTargetRpsReplica">-</strong></div>
-        <div class="kv"><span class="dim">Proposed Step</span><strong id="rdStep">-</strong></div>
         <div class="kv"><span class="dim">Actual Applied Change</span><strong id="rdActual">-</strong></div>
-        <div class="kv"><span class="dim">Downscale Step</span><strong id="rdDownscaleStep">-</strong></div>
-        <div class="kv"><span class="dim">Downscale Reason</span><strong id="rdDownscaleReason">-</strong></div>
         <div class="kv"><span class="dim">Decision Reason</span><strong id="rdReason">-</strong></div>
         <div class="kv"><span class="dim">Blocked By</span><strong id="rdBlocked">-</strong></div>
       </section>
 
-      <section class="panel panel-wide">
+      <section class="panel panel-wide bench-hidden">
         <h3>Live Controls</h3>
 
         <div class="ctrl-grid">
@@ -575,12 +570,12 @@
         <div id="controlMsg" class="msg dim"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Replica Status</h3>
         <div id="replicaRows" class="replica-list"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Operator Access</h3>
         <div class="kv"><span class="dim">Control Authorization</span><strong id="authState">Disabled</strong></div>
         <div class="ctrl-grid">
@@ -594,13 +589,13 @@
         <div class="msg dim">Control actions send the optional operator identity and token headers to the aggregator.</div>
       </section>
 
-      <section class="panel">
+      <section class="panel bench-hidden">
         <h3>Alerts</h3>
         <div id="alertsEmpty" class="dim">No active alerts.</div>
         <div id="alertsRows" class="alert-list" style="display:none"></div>
       </section>
 
-      <section class="panel panel-wide">
+      <section class="panel panel-wide bench-hidden">
         <h3>Trace Review</h3>
         <div class="trace-review-list">
           <div class="trace-review-row">
@@ -670,7 +665,7 @@
         </div>
       </section>
 
-      <section class="panel panel-wide">
+      <section class="panel panel-wide bench-hidden">
         <h3>Decision Trace Log</h3>
         <div class="trace-wrap">
           <table class="trace-table">
@@ -835,12 +830,7 @@
       document.getElementById("rdTarget").textContent = trace ? String(Number(trace.target_replicas || 0)) : "-";
       document.getElementById("rdTargetTraffic").textContent = trace ? String(Number(trace.target_from_traffic || 0)) : "-";
       document.getElementById("rdTargetSlo").textContent = trace ? String(Number(trace.target_from_slo || 0)) : "-";
-      document.getElementById("rdDesiredTraffic").textContent = trace ? String(Number(trace.desired_replicas_from_traffic || 0)) : "-";
-      document.getElementById("rdTargetRpsReplica").textContent = trace ? Number(trace.target_rps_per_replica || 0).toFixed(2) : "-";
-      document.getElementById("rdStep").textContent = trace ? String(Number(trace.proposed_step || trace.applied_scale_step || 0)) : "-";
       document.getElementById("rdActual").textContent = trace ? String(Number(trace.actual_replica_change || 0)) : "-";
-      document.getElementById("rdDownscaleStep").textContent = trace ? String(Number(trace.downscale_step || 0)) : "-";
-      document.getElementById("rdDownscaleReason").textContent = trace?.downscale_reason || "-";
       document.getElementById("rdReason").textContent = trace?.reason || "-";
       document.getElementById("rdBlocked").textContent = blocked || "-";
     }

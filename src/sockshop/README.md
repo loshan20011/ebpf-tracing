@@ -1,6 +1,7 @@
 Sock Shop app-specific helpers:
 
 - `deploy_sockshop_k3s.sh`: deploy and patch the Sock Shop application on the target cluster.
+- `deploy_sockshop_eks.sh`: deploy and patch the Sock Shop application on EKS or another cloud-backed Kubernetes cluster.
 - `login_load_probe.py`: app-specific `/login` load probe used by benchmark runners.
 - `seed_customers.py`: seed customer records through the Sock Shop front-end API.
 - `working_endpoints.txt`: quick endpoint notes captured during route validation.

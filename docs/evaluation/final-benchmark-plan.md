@@ -7,7 +7,7 @@ Frozen benchmark:
 - auth: `Authorization: Basic <base64(username:password)>`
 - user pool: seeded through `/register` only
 - client-side SLO: `10s p90 < 150 ms`
-- benchmark arms: `HPA-50`, `HPA-75`, `ThriveScale`
+- benchmark arms: `HPA-60`, `HPA-80`, `ThriveScale`
 - one final run per arm only
 
 Frozen resources:
@@ -71,8 +71,8 @@ Canonical commands:
 
 ```bash
 bash src/scripts/benchmark/run_final_login_benchmark.sh prepare
-bash src/scripts/benchmark/run_final_login_benchmark.sh run-arm hpa50
-bash src/scripts/benchmark/run_final_login_benchmark.sh run-arm hpa75
+bash src/scripts/benchmark/run_final_login_benchmark.sh run-arm hpa60
+bash src/scripts/benchmark/run_final_login_benchmark.sh run-arm hpa80
 bash src/scripts/benchmark/run_final_login_benchmark.sh run-arm thrivescale
 bash src/scripts/benchmark/run_final_login_benchmark.sh compare
 ```

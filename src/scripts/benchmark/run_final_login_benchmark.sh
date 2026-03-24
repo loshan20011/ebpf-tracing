@@ -16,13 +16,15 @@ SEED_SCRIPT="${BENCH_DIR}/seed_login_users.py"
 FALLBACK_SCALE_FACTOR="${FALLBACK_SCALE_FACTOR:-0.75}"
 STABILIZE_SECONDS="${STABILIZE_SECONDS:-75}"
 WINDOW_SECONDS="${WINDOW_SECONDS:-10}"
+FRONTEND_SLO_MS="${FRONTEND_SLO_MS:-250}"
+SECONDARY_SLO_MS="${SECONDARY_SLO_MS:-150}"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 1; }
 }
 
 init_layout() {
-  mkdir -p "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/hpa75" "${RESULTS_DIR}/thrivescale"
+  mkdir -p "${RESULTS_DIR}/noautoscale" "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/hpa80" "${RESULTS_DIR}/thrivescale"
   if [[ ! -f "${DEFAULT_WORKLOAD_FILE}" ]]; then
     cat > "${DEFAULT_WORKLOAD_FILE}" <<'EOF'
 [
@@ -162,18 +164,21 @@ restore_min_replicas() {
 }
 
 apply_thrivescale_slos() {
-  python3 - "${COMMON_DIR}" <<'PY'
+  python3 - "${COMMON_DIR}" "${FRONTEND_SLO_MS}" "${SECONDARY_SLO_MS}" <<'PY'
 import json
 import sys
 sys.path.insert(0, sys.argv[1])
 from patch_demo_gateway_slo import prepare_sock_shop_slos
 
+frontend_slo = float(sys.argv[2])
+secondary_slo = float(sys.argv[3])
+
 case_cfg = {
     "replica_bounds": {"minReplicas": 1, "maxReplicas": 13},
     "service_slos": {
-        "sockshop-front-end-slo": {"targetDeployment": "front-end", "sloLatency": 150.0, "minReplicas": 1, "maxReplicas": 10, "priority": "primary"},
-        "sockshop-user-slo": {"targetDeployment": "user", "sloLatency": 100.0, "minReplicas": 1, "maxReplicas": 13, "priority": "secondary"},
-        "sockshop-carts-slo": {"targetDeployment": "carts", "sloLatency": 100.0, "minReplicas": 1, "maxReplicas": 13, "priority": "secondary"}
+        "sockshop-front-end-slo": {"targetDeployment": "front-end", "sloLatency": frontend_slo, "minReplicas": 1, "maxReplicas": 10, "priority": "primary"},
+        "sockshop-user-slo": {"targetDeployment": "user", "sloLatency": secondary_slo, "minReplicas": 1, "maxReplicas": 13, "priority": "secondary"},
+        "sockshop-carts-slo": {"targetDeployment": "carts", "sloLatency": secondary_slo, "minReplicas": 1, "maxReplicas": 13, "priority": "secondary"}
     }
 }
 result = prepare_sock_shop_slos(case_cfg, namespace="sock-shop")
@@ -398,13 +403,17 @@ prepare_arm() {
   apply_fixed_resources
   restore_min_replicas
   case "${arm}" in
+    noautoscale)
+      delete_hpas
+      disable_thrivescale_control
+      ;;
     hpa50)
       disable_thrivescale_control
       apply_hpa_profile 50
       ;;
-    hpa75)
+    hpa80)
       disable_thrivescale_control
-      apply_hpa_profile 75
+      apply_hpa_profile 80
       ;;
     thrivescale)
       delete_hpas
@@ -541,7 +550,7 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-arms = [("hpa50", "HPA-50"), ("hpa75", "HPA-75"), ("thrivescale", "ThriveScale")]
+arms = [("noautoscale", "Fixed-1"), ("hpa50", "HPA-50"), ("hpa80", "HPA-80"), ("thrivescale", "ThriveScale")]
 rows = []
 for folder, label in arms:
     summary_path = root / folder / "summary.json"
@@ -590,14 +599,15 @@ show_usage() {
 Usage:
   $(basename "$0") prepare
   $(basename "$0") verify
-  $(basename "$0") run-arm <hpa50|hpa75|thrivescale>
+  $(basename "$0") run-arm <noautoscale|hpa50|hpa80|thrivescale>
   $(basename "$0") compare
 
 Outputs:
   frozen workload: ${DEFAULT_WORKLOAD_FILE}
   workload state:  ${FALLBACK_STATE_FILE}
+  no autoscale results: ${RESULTS_DIR}/noautoscale
   hpa50 results:   ${RESULTS_DIR}/hpa50
-  hpa75 results:   ${RESULTS_DIR}/hpa75
+  hpa80 results:   ${RESULTS_DIR}/hpa80
   thrive results:  ${RESULTS_DIR}/thrivescale
 EOF
 }
