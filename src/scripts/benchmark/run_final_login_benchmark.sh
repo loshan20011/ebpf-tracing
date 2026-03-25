@@ -24,7 +24,7 @@ require_cmd() {
 }
 
 init_layout() {
-  mkdir -p "${RESULTS_DIR}/noautoscale" "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/hpa80" "${RESULTS_DIR}/thrivescale"
+  mkdir -p "${RESULTS_DIR}/noautoscale" "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/thrivescale"
   if [[ ! -f "${DEFAULT_WORKLOAD_FILE}" ]]; then
     cat > "${DEFAULT_WORKLOAD_FILE}" <<'EOF'
 [
@@ -411,10 +411,6 @@ prepare_arm() {
       disable_thrivescale_control
       apply_hpa_profile 50
       ;;
-    hpa80)
-      disable_thrivescale_control
-      apply_hpa_profile 80
-      ;;
     thrivescale)
       delete_hpas
       apply_thrivescale_slos
@@ -550,27 +546,33 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-arms = [("noautoscale", "Fixed-1"), ("hpa50", "HPA-50"), ("hpa80", "HPA-80"), ("thrivescale", "ThriveScale")]
+arms = [("noautoscale", "No Autoscaler"), ("hpa50", "HPA-50"), ("thrivescale", "ThriveScale")]
 rows = []
 for folder, label in arms:
     summary_path = root / folder / "summary.json"
     if not summary_path.exists():
         continue
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    rows.append(
-        {
-            "Arm": label,
-            "SLO violation time": summary["benchmark_metrics"]["slo_violation_time_seconds"],
-            "SLO violation rate": summary["benchmark_metrics"]["slo_violation_rate"],
-            "Time to first action": summary["benchmark_metrics"]["time_to_first_action_seconds"],
-            "Recovery time": summary["benchmark_metrics"]["recovery_time_seconds"],
-            "Peak replicas": summary["replica_metrics"]["overall_peak_replicas"],
-            "Average replicas": summary["replica_metrics"]["overall_avg_replicas"],
-            "Requested CPU core-minutes": summary["replica_metrics"]["total_requested_cpu_core_minutes"],
-            "Replica-seconds": summary["replica_metrics"]["total_replica_seconds"],
-            "Error rate": summary["frontend_client_metrics"]["error_rate"],
-        }
-    )
+    row = {
+        "Arm": label,
+        "SLO violation time": summary["benchmark_metrics"]["slo_violation_time_seconds"],
+        "SLO violation rate": summary["benchmark_metrics"]["slo_violation_rate"],
+        "Time to first action": summary["benchmark_metrics"]["time_to_first_action_seconds"],
+        "Recovery time": summary["benchmark_metrics"]["recovery_time_seconds"],
+        "Peak replicas": summary["replica_metrics"]["overall_peak_replicas"],
+        "Average replicas": summary["replica_metrics"]["overall_avg_replicas"],
+        "Requested CPU core-minutes": summary["replica_metrics"]["total_requested_cpu_core_minutes"],
+        "Replica-seconds": summary["replica_metrics"]["total_replica_seconds"],
+        "Error rate": summary["frontend_client_metrics"]["error_rate"],
+    }
+    if folder == "noautoscale":
+        row["Time to first action"] = None
+        row["Recovery time"] = None
+        row["Peak replicas"] = None
+        row["Average replicas"] = None
+        row["Requested CPU core-minutes"] = None
+        row["Replica-seconds"] = None
+    rows.append(row)
     (root / folder / "exact_workload_profile.json").write_text(json.dumps(summary["phases"], indent=2, sort_keys=True), encoding="utf-8")
 if not rows:
     raise SystemExit("no completed arm summaries found")
@@ -599,7 +601,7 @@ show_usage() {
 Usage:
   $(basename "$0") prepare
   $(basename "$0") verify
-  $(basename "$0") run-arm <noautoscale|hpa50|hpa80|thrivescale>
+  $(basename "$0") run-arm <noautoscale|hpa50|thrivescale>
   $(basename "$0") compare
 
 Outputs:
@@ -607,7 +609,6 @@ Outputs:
   workload state:  ${FALLBACK_STATE_FILE}
   no autoscale results: ${RESULTS_DIR}/noautoscale
   hpa50 results:   ${RESULTS_DIR}/hpa50
-  hpa80 results:   ${RESULTS_DIR}/hpa80
   thrive results:  ${RESULTS_DIR}/thrivescale
 EOF
 }

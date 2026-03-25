@@ -25,7 +25,6 @@ This phase is observation only. It is not for autoscaling behavior yet.
 ## Reason Classes
 - `downstream_delay`
 - `local_cpu_pressure`
-- `local_unclear_or_non_cpu`
 - `external_or_unmonitored_delay`
 
 ## SLO Setup
@@ -48,7 +47,7 @@ Gateway SLO is patched per case:
 | `BR1_local_cpu_pressure` | direct CPU pressure on `svc-cpu` | `svc-cpu` | `downstream_delay` | `local_cpu_pressure` |
 | `BR2_downstream_delay` | monitored child behind `svc-chain` | `svc-cpu` | `downstream_delay` | `local_cpu_pressure` |
 | `BR3_external_delay` | external dependency behavior behind `svc-net` | `svc-net` | `downstream_delay` | `external_or_unmonitored_delay` |
-| `BR4_local_unclear_non_cpu` | local non-CPU delay on `svc-io` | `svc-io` | `downstream_delay` | `local_unclear_or_non_cpu` |
+| `BR4_local_unclear_non_cpu` | local non-CPU delay on `svc-io` | `svc-io` | `downstream_delay` | `local_cpu_pressure` |
 
 ## Pass / Fail Semantics
 Use the last `40s` of the run.

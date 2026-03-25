@@ -15,8 +15,8 @@
     "graph_edges": [
       "front-end->catalogue"
     ],
-    "leaf_reason_class": "local_unclear_or_non_cpu",
-    "reason_class": "local_bottleneck"
+    "leaf_reason_class": "local_cpu_pressure",
+    "reason_class": "local_cpu_pressure"
   },
   "initial_replicas": {
     "front-end": 1,

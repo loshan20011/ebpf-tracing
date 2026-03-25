@@ -359,6 +359,18 @@ def compute_benchmark_metrics(client_windows: list[dict], replica_windows: list[
     first_violation = violating_windows[0] if violating_windows else None
     first_violation_start = float(first_violation["start_s"]) if first_violation else None
 
+    first_action_from_run_start = None
+    for idx, row in enumerate(replica_windows):
+        if idx == 0:
+            continue
+        increased = any(
+            int(row.get(name, {}).get("desired", 0) or 0) > int(replica_windows[idx - 1].get(name, {}).get("desired", 0) or 0)
+            for name in TRACKED_DEPLOYS
+        )
+        if increased:
+            first_action_from_run_start = round(float(row["start_s"]), 3)
+            break
+
     first_action_time = None
     if first_violation is not None:
         for idx, row in enumerate(replica_windows):
@@ -393,6 +405,7 @@ def compute_benchmark_metrics(client_windows: list[dict], replica_windows: list[
         "slo_violation_time_seconds": violation_time,
         "slo_violation_rate": violation_rate,
         "slo_violation_episode_count": episodes,
+        "time_to_first_action_from_run_start_seconds": first_action_from_run_start,
         "time_to_first_action_seconds": first_action_time,
         "recovery_time_seconds": recovery_time,
     }
@@ -416,6 +429,7 @@ def write_markdown_summary(path: Path, arm: str, workload: list[dict], summary: 
         "",
         f"- SLO violation time: {benchmark['slo_violation_time_seconds']} s",
         f"- SLO violation rate: {benchmark['slo_violation_rate']}",
+        f"- Time to first action from run start: {benchmark.get('time_to_first_action_from_run_start_seconds')}",
         f"- Time to first action: {benchmark['time_to_first_action_seconds']}",
         f"- Recovery time: {benchmark['recovery_time_seconds']}",
         f"- Error rate: {frontend['error_rate']}",

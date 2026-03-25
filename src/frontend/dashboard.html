@@ -444,8 +444,8 @@
             <strong id="nHealth">-</strong>
           </div>
           <div class="kv">
-            <span class="dim label-inline">Controller Decision<span class="hint" title="Latest controller trace for this service. When available, the dashboard prefers the controller's own reason and hold/scale decision over a local UI heuristic.">i</span></span>
-            <strong id="nDecision">-</strong>
+            <span class="dim label-inline">Likely Bottleneck<span class="hint" title="Best current bottleneck-type estimate for this service. It shows one of the planned controller classes or unknown.">i</span></span>
+            <strong id="nLikelyBottleneck">-</strong>
           </div>
         </div>
       </section>
@@ -493,15 +493,13 @@
         <h3>Replica Decision</h3>
         <div class="kv"><span class="dim">Current Replicas</span><strong id="rdCurrent">-</strong></div>
         <div class="kv"><span class="dim">Target Replicas</span><strong id="rdTarget">-</strong></div>
-        <div class="kv"><span class="dim">Target From Traffic</span><strong id="rdTargetTraffic">-</strong></div>
-        <div class="kv"><span class="dim">Target From SLO</span><strong id="rdTargetSlo">-</strong></div>
         <div class="kv"><span class="dim">Actual Applied Change</span><strong id="rdActual">-</strong></div>
         <div class="kv"><span class="dim">Decision Reason</span><strong id="rdReason">-</strong></div>
         <div class="kv"><span class="dim">Blocked By</span><strong id="rdBlocked">-</strong></div>
       </section>
 
-      <section class="panel panel-wide bench-hidden">
-        <h3>Live Controls</h3>
+      <section class="panel panel-wide">
+        <h3>Traffic Generator</h3>
 
         <div class="ctrl-grid">
           <label>Route
@@ -516,19 +514,10 @@
           <label>Duration (s)
             <input id="cDuration" type="number" min="1" value="60" />
           </label>
-          <label>Base URL
-            <input id="cBase" value="http://gateway" />
-          </label>
-          <label>Derived Requests
-            <input id="cReq" type="number" min="1" value="1500" />
-          </label>
-          <label>Concurrency
-            <input id="cConc" type="number" min="1" value="5" />
-          </label>
         </div>
-        <div class="kv"><span class="dim">Traffic Target</span><strong id="cTargetUrl">-</strong></div>
-        <div class="kv"><span class="dim">Traffic Profile</span><strong id="cProfile">-</strong></div>
-        <div class="msg dim">Use route or path override, choose an approximate target RPS and duration, then start traffic and watch the trace and replica panels for scale-ups.</div>
+        <div class="kv"><span class="dim">Generated Path</span><strong id="cTargetUrl">-</strong></div>
+        <div class="kv"><span class="dim">Traffic Plan</span><strong id="cProfile">-</strong></div>
+        <div class="msg dim">Choose the route or path, set the target RPS and duration, then start traffic.</div>
         <div class="ctrl-grid" style="margin-top:8px">
           <button id="btnTrafficStart">Start Traffic</button>
           <button id="btnTrafficStop" class="warn">Stop All Traffic Jobs</button>
@@ -536,6 +525,7 @@
 
         <hr style="border:none; border-top:1px solid #e1e8d9; margin:10px 0">
 
+        <h3 style="margin-top:0">Scaling Controls</h3>
         <div class="ctrl-grid">
           <label>Deployment
             <select id="sloDeployment"></select>
@@ -589,13 +579,13 @@
         <div class="msg dim">Control actions send the optional operator identity and token headers to the aggregator.</div>
       </section>
 
-      <section class="panel bench-hidden">
+      <section class="panel">
         <h3>Alerts</h3>
         <div id="alertsEmpty" class="dim">No active alerts.</div>
         <div id="alertsRows" class="alert-list" style="display:none"></div>
       </section>
 
-      <section class="panel panel-wide bench-hidden">
+      <section class="panel panel-wide">
         <h3>Trace Review</h3>
         <div class="trace-review-list">
           <div class="trace-review-row">
@@ -615,7 +605,7 @@
         </div>
       </section>
 
-      <section class="panel panel-wide bench-hidden" id="support">
+      <section class="panel panel-wide" id="support">
         <h3>Support Desk</h3>
         <div class="ctrl-grid">
           <label>Title
@@ -665,7 +655,7 @@
         </div>
       </section>
 
-      <section class="panel panel-wide bench-hidden">
+      <section class="panel panel-wide">
         <h3>Decision Trace Log</h3>
         <div class="trace-wrap">
           <table class="trace-table">
@@ -676,10 +666,8 @@
                 <th>Path</th>
                 <th>Final Service</th>
                 <th>Type</th>
-                <th>Pattern</th>
-                <th>Short/Long RPS</th>
+                <th>RPS</th>
                 <th>Replicas</th>
-                <th>Desired</th>
                 <th>Decision</th>
                 <th>Blocked</th>
               </tr>
@@ -786,7 +774,15 @@
       const finalReason = String(trace?.final_reason || trace?.bottleneck_kind || "").trim();
       if (finalReason === "downstream_delay") return "DOWNSTREAM DELAY";
       if (finalReason === "external_or_unmonitored_delay") return "EXTERNAL / UNMONITORED";
-      if (finalReason === "local_bottleneck") return "LOCAL BOTTLENECK";
+      if (finalReason === "local_bottleneck" || finalReason === "local_cpu_pressure") return "LOCAL CPU PRESSURE";
+      return "";
+    }
+
+    function reasonClassFromTrace(trace) {
+      const finalReason = String(trace?.final_bottleneck_type || trace?.final_reason || "").trim();
+      if (finalReason === "downstream_delay") return "downstream_delay";
+      if (finalReason === "external_or_unmonitored_delay") return "external_or_unmonitored_delay";
+      if (finalReason === "local_bottleneck" || finalReason === "local_cpu_pressure") return "local_cpu_pressure";
       return "";
     }
 
@@ -813,6 +809,22 @@
       return String(trace?.final_bottleneck_service || trace?.service || trace?.node || "-");
     }
 
+    function likelyBottleneck(serviceName, metric, status) {
+      const trace = latestTraceByService[serviceName];
+      const traceTs = Number(trace?.ts_unix_ms || 0);
+      if (trace && traceTs > 0 && (Date.now() - traceTs) <= TRACE_FRESH_MS) {
+        return reasonClassFromTrace(trace) || "unknown";
+      }
+      if (!status || status.inactive) return "unknown";
+      const serviceHandling = Number(metric.service_handling_latency || metric.exclusive_delay || 0);
+      const dependencyDelay = Number(metric.dependency_attributed_latency || 0);
+      const externalWait = Number(metric.external_wait_latency || 0);
+      if (dependencyDelay >= Math.max(serviceHandling * 1.1, externalWait, 1.0)) return "downstream_delay";
+      if (externalWait >= Math.max(serviceHandling * 1.1, dependencyDelay, 1.0)) return "external_or_unmonitored_delay";
+      if (serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0)) return "local_cpu_pressure";
+      return "unknown";
+    }
+
     function renderActiveDecision() {
       const trace = latestActiveTrace;
       const blocked = blockedByLabel(trace?.blocked_by);
@@ -828,8 +840,6 @@
       document.getElementById("tpStatus").textContent = trace ? (trace.trigger_breached ? "breached" : (trace.under_pressure ? "near_breach" : "healthy")) : "-";
       document.getElementById("rdCurrent").textContent = trace ? String(Number(trace.current_replicas || 0)) : "-";
       document.getElementById("rdTarget").textContent = trace ? String(Number(trace.target_replicas || 0)) : "-";
-      document.getElementById("rdTargetTraffic").textContent = trace ? String(Number(trace.target_from_traffic || 0)) : "-";
-      document.getElementById("rdTargetSlo").textContent = trace ? String(Number(trace.target_from_slo || 0)) : "-";
       document.getElementById("rdActual").textContent = trace ? String(Number(trace.actual_replica_change || 0)) : "-";
       document.getElementById("rdReason").textContent = trace?.reason || "-";
       document.getElementById("rdBlocked").textContent = blocked || "-";
@@ -858,16 +868,18 @@
       else if (violating && serviceHandling >= Math.max(dependencyDelay, externalWait, 1.0)) actionTag = "LOCAL BOTTLENECK";
       let controllerDecision = "";
       let controllerReason = "";
+      let likelyReason = "";
       const trace = latestTraceByService[serviceName];
       const traceTs = Number(trace?.ts_unix_ms || 0);
       if (trace && traceTs > 0 && (Date.now() - traceTs) <= TRACE_FRESH_MS) {
         controllerReason = reasonTagFromTrace(trace);
         controllerDecision = traceDecisionLabel(trace);
+        likelyReason = reasonClassFromTrace(trace);
         if (controllerReason) actionTag = controllerReason;
       }
       return {
         p90, latencyValid, runq, runqThreshold, runqPct, cpuThrottle, throttlePct, cpuThrottleLong, serviceHandling, dependencyDelay,
-        externalWait, slo, rps, inactive, violating, actionTag, controllerDecision, controllerReason
+        externalWait, slo, rps, inactive, violating, actionTag, controllerDecision, controllerReason, likelyReason
       };
     }
 
@@ -964,23 +976,14 @@
 
     function updateTrafficPlan() {
       const path = selectedTrafficPath();
-      const baseUrl = document.getElementById("cBase").value.trim();
+      const baseUrl = String(controlState.trafficBaseUrl || (controlState.benchmark || {}).trafficBaseUrl || "").trim();
       const rps = Math.max(1, Number(document.getElementById("cRps").value || 0));
       const duration = Math.max(1, Number(document.getElementById("cDuration").value || 0));
-      const derivedRequests = Math.max(1, Math.round(rps * duration));
-      const reqInput = document.getElementById("cReq");
-      const concInput = document.getElementById("cConc");
-      if (reqInput.dataset.userEdited !== "true") {
-        reqInput.value = String(derivedRequests);
-      }
-      if (concInput.dataset.userEdited !== "true") {
-        concInput.value = String(estimateConcurrency(rps, duration, derivedRequests));
-      }
-      const requests = Math.max(1, Number(reqInput.value || derivedRequests));
-      const concurrency = Math.max(1, Number(concInput.value || estimateConcurrency(rps, duration, derivedRequests)));
+      const requests = Math.max(1, Math.round(rps * duration));
+      const concurrency = Math.max(1, estimateConcurrency(rps, duration, requests));
       const targetUrl = `${baseUrl.replace(/\/$/, "")}${path}`;
-      document.getElementById("cTargetUrl").textContent = targetUrl || "-";
-      document.getElementById("cProfile").textContent = `Approx ${rps.toFixed(0)} RPS for ${duration}s using ${requests} requests at concurrency ${concurrency}`;
+      document.getElementById("cTargetUrl").textContent = path || "-";
+      document.getElementById("cProfile").textContent = `${rps.toFixed(0)} RPS for ${duration}s`;
       return { path, rps, duration, requests, concurrency, targetUrl };
     }
 
@@ -1004,15 +1007,8 @@
     }
 
     function updateTrafficBaseSuggestion(baseUrl) {
-      const input = document.getElementById("cBase");
       const suggested = String(baseUrl || "");
-      const previousSuggested = input.dataset.suggestedBase || "";
-      const current = input.value.trim();
-      const defaultLegacy = "http://gateway";
-      if (!current || current === previousSuggested || current === defaultLegacy || input.dataset.userEdited !== "true") {
-        input.value = suggested;
-      }
-      input.dataset.suggestedBase = suggested;
+      document.getElementById("sBase").textContent = `Base: ${suggested || "--"}`;
       updateTrafficPlan();
     }
 
@@ -1200,7 +1196,7 @@
         health.className = "healthy";
       }
 
-      document.getElementById("nDecision").textContent = s.controllerDecision || "No recent controller trace";
+      document.getElementById("nLikelyBottleneck").textContent = likelyBottleneck(id, metric, s);
     }
 
     function renderGraph(data) {
@@ -1301,10 +1297,15 @@
       latestTraceByService = {};
       latestActiveTrace = rows.length ? rows[0] : null;
       for (const t of rows) {
-        const service = String(t.service || t.node || "").trim();
-        if (!service) continue;
-        if (!latestTraceByService[service] || Number(t.ts_unix_ms || 0) > Number(latestTraceByService[service].ts_unix_ms || 0)) {
-          latestTraceByService[service] = t;
+        const serviceKeys = [
+          String(t.trigger_service || "").trim(),
+          String(t.final_bottleneck_service || "").trim(),
+          String(t.service || t.node || "").trim()
+        ].filter(Boolean);
+        for (const service of serviceKeys) {
+          if (!latestTraceByService[service] || Number(t.ts_unix_ms || 0) > Number(latestTraceByService[service].ts_unix_ms || 0)) {
+            latestTraceByService[service] = t;
+          }
         }
       }
       const tbody = document.getElementById("traceRows");
@@ -1319,10 +1320,8 @@
           <td>${escapeHtml(path)}</td>
           <td>${escapeHtml(t.final_bottleneck_service || t.service || t.node || "-")}</td>
           <td>${escapeHtml(t.final_bottleneck_type || t.final_reason || "-")}</td>
-          <td>${escapeHtml(t.traffic_pattern || "-")}</td>
-          <td>${Number(t.short_rps || 0).toFixed(1)} / ${Number(t.long_rps || 0).toFixed(1)}</td>
+          <td>${Number(t.rps || t.short_rps || 0).toFixed(1)}</td>
           <td>${Number(t.current_replicas || 0)} -> ${Number(t.target_replicas || 0)}</td>
-          <td>${Number(t.target_from_traffic || t.desired_replicas_from_traffic || 0)} / ${Number(t.target_from_slo || 0)}</td>
           <td>${escapeHtml(traceDecisionLabel(t) || t.action || "-")}</td>
           <td>${escapeHtml(blockedByLabel(t.blocked_by) || "-")}</td>
         `;
@@ -1659,22 +1658,10 @@
     });
     document.getElementById("operatorName").addEventListener("input", persistControlPrefs);
     document.getElementById("controlToken").addEventListener("input", persistControlPrefs);
-    document.getElementById("cBase").addEventListener("input", () => {
-      document.getElementById("cBase").dataset.userEdited = "true";
-      updateTrafficPlan();
-    });
     document.getElementById("cRoute").addEventListener("change", updateTrafficPlan);
     document.getElementById("cPath").addEventListener("input", updateTrafficPlan);
     document.getElementById("cRps").addEventListener("input", updateTrafficPlan);
     document.getElementById("cDuration").addEventListener("input", updateTrafficPlan);
-    document.getElementById("cReq").addEventListener("input", () => {
-      document.getElementById("cReq").dataset.userEdited = "true";
-      updateTrafficPlan();
-    });
-    document.getElementById("cConc").addEventListener("input", () => {
-      document.getElementById("cConc").dataset.userEdited = "true";
-      updateTrafficPlan();
-    });
 
     document.getElementById("btnTrafficStart").addEventListener("click", async () => {
       const routeCfg = selectedRouteConfig();
@@ -1683,7 +1670,7 @@
       const path = plan.path;
       const requests = plan.requests;
       const concurrency = plan.concurrency;
-      const base_url = document.getElementById("cBase").value.trim();
+      const base_url = String(controlState.trafficBaseUrl || (controlState.benchmark || {}).trafficBaseUrl || "").trim();
       try {
         const data = await postJson(CONTROL_TRAFFIC_START_URL, { route, path, requests, concurrency, base_url });
         setControlMsg(`Traffic job started: ${data.job} -> ${data.target_url} | approx ${plan.rps.toFixed(0)} rps for ${plan.duration}s`);

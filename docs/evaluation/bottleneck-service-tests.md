@@ -57,9 +57,9 @@ Gateway SLO is patched per case:
 | Case | Route Shape | Expected Service | Expected Path Reason | Expected Final Reason |
 | --- | --- | --- | --- | --- |
 | `BS1_local_cpu_service` | `gateway -> svc-cpu` | `svc-cpu` | `downstream_delay` | `local_cpu_pressure` |
-| `BS2_local_io_service` | `gateway -> svc-io` | `svc-io` | `downstream_delay` | `local_unclear_or_non_cpu` |
+| `BS2_local_io_service` | `gateway -> svc-io` | `svc-io` | `downstream_delay` | `local_cpu_pressure` |
 | `BS3_chain_downstream_service` | `gateway -> svc-chain -> svc-cpu` | `svc-cpu` | `downstream_delay` | `local_cpu_pressure` |
-| `BS4_fanout_dominant_child` | `gateway -> svc-fanout -> svc-cpu + svc-io` | `svc-io` | `downstream_delay` | `local_unclear_or_non_cpu` |
+| `BS4_fanout_dominant_child` | `gateway -> svc-fanout -> svc-cpu + svc-io` | `svc-io` | `downstream_delay` | `local_cpu_pressure` |
 
 ## Outputs Saved
 For each case:

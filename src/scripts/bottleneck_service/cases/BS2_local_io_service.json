@@ -16,9 +16,9 @@
     "graph_edges": [
       "gateway->svc-io"
     ],
-    "leaf_reason_class": "local_unclear_or_non_cpu",
+    "leaf_reason_class": "local_cpu_pressure",
     "path_reason_class": "downstream_delay",
-    "reason_class": "local_unclear_or_non_cpu"
+    "reason_class": "local_cpu_pressure"
   },
   "initial_replicas": {
     "gateway": 1,

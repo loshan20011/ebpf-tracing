@@ -20,7 +20,7 @@ DEPENDENCY_FRACTION_MAX = 0.50
 EVALUATION_WINDOW_SECONDS = 40
 MIN_CONSECUTIVE_MATCH_LOOPS = 2
 TOP_LEVEL_REASON_CLASSES = {
-    "local_bottleneck",
+    "local_cpu_pressure",
     "downstream_delay",
     "external_or_unmonitored_delay",
 }
@@ -259,6 +259,15 @@ def active_demand(metric: dict) -> bool:
     return bool(metric.get("active_short", False)) and preferred_rps(metric) >= ACTIVE_RPS_THRESHOLD
 
 
+def normalize_reason_class(value: str) -> str:
+    reason = str(value or "")
+    if reason in {"local_cpu_pressure", "local_unclear_or_non_cpu", "local_bottleneck"}:
+        return "local_cpu_pressure"
+    if reason == "external_delay":
+        return "external_or_unmonitored_delay"
+    return reason
+
+
 def sustained_external_evidence(metric: dict) -> bool:
     return bool(metric.get("sustained_external_evidence", False))
 
@@ -449,15 +458,15 @@ def detect_bottleneck(metrics: dict, topology: dict, root: str, monitored: set[s
 
 
 def top_level_reason_class(detection: dict) -> str:
-    path_reason = str(detection.get("path_reason_class") or "")
-    leaf_reason = str(detection.get("leaf_reason_class") or "")
+    path_reason = normalize_reason_class(str(detection.get("path_reason_class") or ""))
+    leaf_reason = normalize_reason_class(str(detection.get("leaf_reason_class") or ""))
     if leaf_reason == "external_or_unmonitored_delay":
         return "external_or_unmonitored_delay"
     if path_reason == "downstream_delay":
         return "downstream_delay"
-    if leaf_reason in {"local_cpu_pressure", "local_unclear_or_non_cpu", "local_bottleneck"}:
-        return "local_bottleneck"
-    return leaf_reason or str(detection.get("reason_class") or "")
+    if leaf_reason == "local_cpu_pressure":
+        return "local_cpu_pressure"
+    return leaf_reason or normalize_reason_class(str(detection.get("reason_class") or ""))
 
 
 def summarize(case_dir: Path, phase_name: str) -> dict:
@@ -510,7 +519,7 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         for service in sorted(services)
     }
 
-    expected_reason = str(expected.get("reason_class", ""))
+    expected_reason = normalize_reason_class(str(expected.get("reason_class", "")))
     expected_service = str(expected.get("bottleneck_service", ""))
 
     snapshot_detections = []
@@ -520,13 +529,13 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         row_topology = row_payload.get("topology", {}) if isinstance(row_payload, dict) else {}
         row_metrics = snapshot_metrics(row, services)
         det = detect_bottleneck(row_metrics, row_topology if isinstance(row_topology, dict) else {}, root_service, services)
-        row_path_reason = str(det.get("path_reason_class") or "")
-        row_leaf_reason = str(det.get("leaf_reason_class") or "")
+        row_path_reason = normalize_reason_class(str(det.get("path_reason_class") or ""))
+        row_leaf_reason = normalize_reason_class(str(det.get("leaf_reason_class") or ""))
         if expected_reason == "downstream_delay":
-            row_evaluated_reason = row_path_reason or str(det["reason_class"])
+            row_evaluated_reason = row_path_reason or normalize_reason_class(str(det["reason_class"]))
             row_reason_scope = "path"
         else:
-            row_evaluated_reason = row_leaf_reason or str(det["reason_class"])
+            row_evaluated_reason = row_leaf_reason or normalize_reason_class(str(det["reason_class"]))
             row_reason_scope = "leaf"
         snapshot_detections.append(
             {
@@ -556,25 +565,25 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         max_service_consecutive = max(max_service_consecutive, current_service_consecutive)
         max_reason_consecutive = max(max_reason_consecutive, current_reason_consecutive)
 
-    path_reason = str(detection.get("path_reason_class") or "")
-    leaf_reason = str(detection.get("leaf_reason_class") or "")
+    path_reason = normalize_reason_class(str(detection.get("path_reason_class") or ""))
+    leaf_reason = normalize_reason_class(str(detection.get("leaf_reason_class") or ""))
     detected_top_level_reason = top_level_reason_class(detection)
     if expected_reason in TOP_LEVEL_REASON_CLASSES:
         evaluated_reason = detected_top_level_reason
         reason_scope_used = "top_level"
     elif expected_reason == "downstream_delay":
-        evaluated_reason = path_reason or str(detection["reason_class"])
+        evaluated_reason = path_reason or normalize_reason_class(str(detection["reason_class"]))
         reason_scope_used = "path"
     else:
-        evaluated_reason = leaf_reason or str(detection["reason_class"])
+        evaluated_reason = leaf_reason or normalize_reason_class(str(detection["reason_class"]))
         reason_scope_used = "leaf"
 
     service_stability_pass = max_service_consecutive >= MIN_CONSECUTIVE_MATCH_LOOPS
     reason_stability_pass = max_reason_consecutive >= MIN_CONSECUTIVE_MATCH_LOOPS
     service_pass = str(detection["bottleneck_service"]) == expected_service
     reason_pass = expected_reason == evaluated_reason
-    expected_path_reason = str(expected.get("path_reason_class", "") or "")
-    expected_leaf_reason = str(expected.get("leaf_reason_class", "") or "")
+    expected_path_reason = normalize_reason_class(str(expected.get("path_reason_class", "") or ""))
+    expected_leaf_reason = normalize_reason_class(str(expected.get("leaf_reason_class", "") or ""))
     path_reason_pass = None if not expected_path_reason else (path_reason == expected_path_reason)
     leaf_reason_pass = None if not expected_leaf_reason else (leaf_reason == expected_leaf_reason)
     graph_pass = bool(eval_graph_rows) and graph_hits >= max(1, (len(eval_graph_rows) + 1) // 2)
@@ -601,10 +610,10 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         "platform": service_metrics,
         "detection": {
             "detected_bottleneck_service": detection["bottleneck_service"],
-            "detected_reason_class": detection["reason_class"],
+            "detected_reason_class": normalize_reason_class(str(detection["reason_class"])),
             "detected_top_level_reason_class": detected_top_level_reason,
-            "detected_path_reason_class": detection.get("path_reason_class"),
-            "detected_leaf_reason_class": detection.get("leaf_reason_class"),
+            "detected_path_reason_class": path_reason,
+            "detected_leaf_reason_class": leaf_reason,
             "evaluated_reason_class": evaluated_reason,
             "reason_scope_used": reason_scope_used,
             "reason_detail": detection["reason_detail"],
@@ -612,9 +621,9 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         },
         "expected": {
             "bottleneck_service": expected.get("bottleneck_service", ""),
-            "reason_class": expected.get("reason_class", ""),
-            "path_reason_class": expected.get("path_reason_class", ""),
-            "leaf_reason_class": expected.get("leaf_reason_class", ""),
+            "reason_class": expected_reason,
+            "path_reason_class": expected_path_reason,
+            "leaf_reason_class": expected_leaf_reason,
         },
         "pass_fail": {
             "service_pass": service_pass,

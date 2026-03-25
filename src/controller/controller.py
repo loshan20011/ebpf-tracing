@@ -34,6 +34,8 @@ TARGET_RPS_PER_REPLICA = float(os.getenv("TARGET_RPS_PER_REPLICA", "20.0"))
 UPSCALE_COOLDOWN_S = float(os.getenv("UPSCALE_COOLDOWN_S", str(max(1.0, LOOP_SECONDS))))
 PRESSURE_WINDOW_COUNT = 2
 DOWNSCALE_WINDOW_COUNT = max(2, int(math.ceil(DOWNSCALE_DECISION_WINDOW_SECONDS / max(LOOP_SECONDS, 1.0))))
+RUNQ_ONLY_MIN_RPS = float(os.getenv("RUNQ_ONLY_MIN_RPS", "3.0"))
+RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR = float(os.getenv("RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR", "0.5"))
 LOW_DEMAND_STREAK_REQUIRED = int(
     os.getenv(
         "LOW_DEMAND_STREAK_REQUIRED",
@@ -66,7 +68,7 @@ OVERLOAD_ERROR_RATE_THRESHOLD = float(os.getenv("OVERLOAD_ERROR_RATE_THRESHOLD",
 OVERLOAD_TIMEOUT_RATE_THRESHOLD = float(os.getenv("OVERLOAD_TIMEOUT_RATE_THRESHOLD", "0.02"))
 BREACH_STREAK_REQUIRED = int(os.getenv("BREACH_STREAK_REQUIRED", "2"))
 PRIMARY_BREACH_STREAK_REQUIRED = int(os.getenv("PRIMARY_BREACH_STREAK_REQUIRED", "1"))
-RECENT_BREACH_HOLD_S = float(os.getenv("RECENT_BREACH_HOLD_S", str(max(4.0, LOOP_SECONDS * 2.0))))
+RECENT_BREACH_HOLD_S = float(os.getenv("RECENT_BREACH_HOLD_S", str(max(4.0, LOOP_SECONDS * 1.5))))
 MAX_ROOT_CAUSE_DEPTH = max(1, int(os.getenv("MAX_ROOT_CAUSE_DEPTH", "5")))
 WARMUP_READY_GAP_RATIO = float(os.getenv("WARMUP_READY_GAP_RATIO", "0.1"))
 PRIMARY_PROTECTIVE_FRONTEND_SCALE = os.getenv("PRIMARY_PROTECTIVE_FRONTEND_SCALE", "true").lower() == "true"
@@ -77,11 +79,12 @@ PRIMARY_CONFIDENT_UPSCALE_RATIO = float(os.getenv("PRIMARY_CONFIDENT_UPSCALE_RAT
 PRIMARY_REACTIVE_MIN_UPSCALE_STEP = int(os.getenv("PRIMARY_REACTIVE_MIN_UPSCALE_STEP", "2"))
 PRIMARY_REACTIVE_SEVERE_UPSCALE_STEP = int(os.getenv("PRIMARY_REACTIVE_SEVERE_UPSCALE_STEP", "3"))
 PRIMARY_SEVERE_BREACH_RATIO = float(os.getenv("PRIMARY_SEVERE_BREACH_RATIO", "1.40"))
-PRIMARY_TARGET_STICKY_SECONDS = float(os.getenv("PRIMARY_TARGET_STICKY_SECONDS", "20"))
+PRIMARY_TARGET_STICKY_SECONDS = float(os.getenv("PRIMARY_TARGET_STICKY_SECONDS", "5"))
 PRIMARY_EARLY_WARNING_RATIO = float(os.getenv("PRIMARY_EARLY_WARNING_RATIO", "0.85"))
 BOUNDED_GROWTH_FACTOR = float(os.getenv("BOUNDED_GROWTH_FACTOR", "0.25"))
 POST_SCALE_FEEDBACK_WAIT_SECONDS = float(os.getenv("POST_SCALE_FEEDBACK_WAIT_SECONDS", str(max(20.0, LOOP_SECONDS * 2.0))))
-ACTIVE_TARGET_STICKY_SECONDS = float(os.getenv("ACTIVE_TARGET_STICKY_SECONDS", str(max(20.0, LOOP_SECONDS * 3.0))))
+ACTIVE_TARGET_STICKY_SECONDS = float(os.getenv("ACTIVE_TARGET_STICKY_SECONDS", str(max(6.0, LOOP_SECONDS * 1.5))))
+RECENT_TARGET_HOLD_S = float(os.getenv("RECENT_TARGET_HOLD_S", str(max(15.0, LOOP_SECONDS * 3.0))))
 
 READY_STATE = {"ready": False, "last_error": "", "last_loop_ts": 0.0}
 DOWNSCALE_COOLDOWNS: Dict[str, float] = {}
@@ -99,6 +102,7 @@ PRIMARY_LAST_LOCAL_TARGET_AT: Dict[str, float] = {}
 LAST_SCALE_EVENTS: Dict[str, dict] = {}
 ACTIVE_SCALE_TARGETS: Dict[str, str] = {}
 ACTIVE_SCALE_TARGET_AT: Dict[str, float] = {}
+RECENT_TRUE_TARGET_AT: Dict[str, float] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("SimpleController")
@@ -110,6 +114,28 @@ except Exception:
 
 app_api = client.AppsV1Api()
 custom_api = client.CustomObjectsApi()
+
+
+def parse_service_priority_map(raw: str) -> Dict[str, int]:
+    priorities: Dict[str, int] = {}
+    for chunk in str(raw or "").split(","):
+        item = chunk.strip()
+        if not item or ":" not in item:
+            continue
+        service, score = item.split(":", 1)
+        service = service.strip()
+        if not service:
+            continue
+        try:
+            priorities[service] = int(score.strip())
+        except Exception:
+            priorities[service] = 0
+    return priorities
+
+
+BENCHMARK_PATH_PRIORITY = parse_service_priority_map(
+    os.getenv("BENCHMARK_PATH_PRIORITY", "front-end:100,user:90,catalogue:40,carts:10")
+)
 
 
 def resolve_redis_endpoint() -> Tuple[str, int]:
@@ -184,6 +210,21 @@ def target_rps_per_replica(service: str) -> float:
     if specific:
         return max(0.1, safe_float(specific, TARGET_RPS_PER_REPLICA))
     return max(0.1, TARGET_RPS_PER_REPLICA)
+
+
+def service_priority(service: str) -> int:
+    return safe_int(BENCHMARK_PATH_PRIORITY.get(service, 0), 0)
+
+
+def meaningful_demand(service: str, rps: float, current_replicas: int) -> bool:
+    per_replica = rps / max(current_replicas, 1)
+    demand_floor = target_rps_per_replica(service) * RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR
+    return bool(rps >= RUNQ_ONLY_MIN_RPS or per_replica >= demand_floor)
+
+
+def recent_true_target_hold_active(service: str) -> bool:
+    ts = float(RECENT_TRUE_TARGET_AT.get(service, 0.0) or 0.0)
+    return ts > 0.0 and (time.time() - ts) < RECENT_TARGET_HOLD_S
 
 
 def runq_latency_ms(metrics, svc: str) -> float:
@@ -821,11 +862,16 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
     err5xx = error_rate_5xx(metrics, service)
     timeout = timeout_rate(metrics, service)
     active = bool(rps > ACTIVE_RPS_THRESHOLD)
+    has_meaningful_demand = meaningful_demand(service, rps, current_replicas)
     p90_breach = bool(sufficient and p90_ms > slo_ms)
     runq_breach = bool(runq_ms > runq_threshold)
     err_breach = bool(err5xx >= OVERLOAD_ERROR_RATE_THRESHOLD)
     timeout_breach = bool(timeout >= OVERLOAD_TIMEOUT_RATE_THRESHOLD)
-    pressure = bool(active and (p90_breach or runq_breach or err_breach or timeout_breach))
+    raw_pressure = bool(active and (p90_breach or runq_breach or err_breach or timeout_breach))
+    scaleout_eligible_pressure = bool(
+        active and (p90_breach or err_breach or timeout_breach or (runq_breach and has_meaningful_demand))
+    )
+    pressure = bool(scaleout_eligible_pressure)
     reason_bits = []
     if p90_breach:
         reason_bits.append("p90_slo")
@@ -838,14 +884,20 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
     trigger_reason = "+".join(reason_bits) if reason_bits else "none"
     if pressure:
         LAST_BREACH_AT[service] = time.time()
+    scaleout_block_reason = ""
+    if raw_pressure and not scaleout_eligible_pressure:
+        scaleout_block_reason = "runq_without_meaningful_demand"
     return {
         "service": service,
         "priority": str(cfg.get("priority", "secondary")),
         "p90_ms": p90_ms,
         "slo_ms": slo_ms,
         "rps": rps,
+        "rps_per_replica": (rps / max(current_replicas, 1)),
         "active": active,
+        "raw_pressure": raw_pressure,
         "pressure": pressure,
+        "scaleout_eligible_pressure": scaleout_eligible_pressure,
         "pressure_confirmed": False,
         "pressure_window_1": False,
         "pressure_window_2": False,
@@ -857,6 +909,13 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
         "timeout_rate": timeout,
         "fresh_enough": bool(sufficient),
         "current_replicas": current_replicas,
+        "has_meaningful_demand": has_meaningful_demand,
+        "p90_breach": p90_breach,
+        "runq_breach": runq_breach,
+        "err_breach": err_breach,
+        "timeout_breach": timeout_breach,
+        "scaleout_eligible": scaleout_eligible_pressure,
+        "scaleout_block_reason": scaleout_block_reason,
     }
 
 
@@ -964,6 +1023,100 @@ def recent_scale_improving(service: str, p90_ms: float, ratio: float, err5xx: fl
     timeout_stable = timeout <= max(ref_timeout, OVERLOAD_TIMEOUT_RATE_THRESHOLD * 0.5)
     runq_not_worse = runq_ms <= max(ref_runq * 1.05, ref_runq + 0.5, RUNQ_FIXED_THRESHOLD_MS)
     return bool((p90_improving or ratio_improving) and errors_stable and timeout_stable and runq_not_worse)
+
+
+def target_admissibility(
+    final_reason: str,
+    target: str,
+    target_cfg: dict,
+    metrics: dict,
+    trigger: dict,
+) -> Tuple[bool, str, dict]:
+    current_replicas, _ready = read_replicas(target)
+    target_p90, _src, target_sufficient = preferred_truth_or_ebpf_p90(metrics, target)
+    target_p90 = target_p90 if target_sufficient else safe_float(trigger.get("p90_ms", 0.0), 0.0)
+    target_slo = max(1.0, safe_float(target_cfg.get("slo", trigger.get("slo_ms", 0.0)), trigger.get("slo_ms", 1.0)))
+    scale_rps = max(preferred_rps(metrics, target), safe_float(trigger.get("rps", 0.0), 0.0))
+    runq_ms = runq_latency_ms(metrics, target)
+    runq_threshold = runq_threshold_ms(metrics, target)
+    err5xx = error_rate_5xx(metrics, target)
+    timeout = timeout_rate(metrics, target)
+    demand_ok = meaningful_demand(target, scale_rps, current_replicas)
+    p90_breach = bool(target_sufficient and target_p90 > target_slo)
+    error_breach = bool(err5xx >= OVERLOAD_ERROR_RATE_THRESHOLD)
+    timeout_breach = bool(timeout >= OVERLOAD_TIMEOUT_RATE_THRESHOLD)
+    runq_breach = bool(runq_ms > runq_threshold)
+
+    if final_reason == "external_or_unmonitored_delay":
+        return False, "external_or_unmonitored_delay", {
+            "p90_ms": target_p90,
+            "slo_ms": target_slo,
+            "rps": scale_rps,
+            "runq_ms": runq_ms,
+            "runq_threshold_ms": runq_threshold,
+            "error_rate_5xx": err5xx,
+            "timeout_rate": timeout,
+            "current_replicas": current_replicas,
+            "demand_ok": demand_ok,
+            "p90_breach": p90_breach,
+            "error_breach": error_breach,
+            "timeout_breach": timeout_breach,
+            "runq_breach": runq_breach,
+        }
+
+    if p90_breach or error_breach or timeout_breach:
+        reason = "p90_or_error_signal"
+        return True, reason, {
+            "p90_ms": target_p90,
+            "slo_ms": target_slo,
+            "rps": scale_rps,
+            "runq_ms": runq_ms,
+            "runq_threshold_ms": runq_threshold,
+            "error_rate_5xx": err5xx,
+            "timeout_rate": timeout,
+            "current_replicas": current_replicas,
+            "demand_ok": demand_ok,
+            "p90_breach": p90_breach,
+            "error_breach": error_breach,
+            "timeout_breach": timeout_breach,
+            "runq_breach": runq_breach,
+        }
+
+    if runq_breach and demand_ok:
+        return True, "runq_with_meaningful_demand", {
+            "p90_ms": target_p90,
+            "slo_ms": target_slo,
+            "rps": scale_rps,
+            "runq_ms": runq_ms,
+            "runq_threshold_ms": runq_threshold,
+            "error_rate_5xx": err5xx,
+            "timeout_rate": timeout,
+            "current_replicas": current_replicas,
+            "demand_ok": demand_ok,
+            "p90_breach": p90_breach,
+            "error_breach": error_breach,
+            "timeout_breach": timeout_breach,
+            "runq_breach": runq_breach,
+        }
+
+    block_reason = "low_target_demand"
+    if runq_breach and not demand_ok:
+        block_reason = "runq_without_meaningful_target_demand"
+    return False, block_reason, {
+        "p90_ms": target_p90,
+        "slo_ms": target_slo,
+        "rps": scale_rps,
+        "runq_ms": runq_ms,
+        "runq_threshold_ms": runq_threshold,
+        "error_rate_5xx": err5xx,
+        "timeout_rate": timeout,
+        "current_replicas": current_replicas,
+        "demand_ok": demand_ok,
+        "p90_breach": p90_breach,
+        "error_breach": error_breach,
+        "timeout_breach": timeout_breach,
+        "runq_breach": runq_breach,
+    }
 
 
 def overprovisioned_for_downscale(service: str, snapshot: dict, current_replicas: int, target_per_replica: float, previous_rps: float) -> bool:
@@ -1115,7 +1268,11 @@ def propose_upscale_action(
         resolution["upscale_eligible"] = False
         return None, resolution
     if not bool(trigger.get("pressure_confirmed", False)):
-        resolution["blocked_by"] = "pressure_not_confirmed"
+        resolution["blocked_by"] = str(trigger.get("scaleout_block_reason", "") or "pressure_not_confirmed")
+        resolution["upscale_eligible"] = False
+        return None, resolution
+    if not bool(trigger.get("scaleout_eligible", False)):
+        resolution["blocked_by"] = str(trigger.get("scaleout_block_reason", "") or "scaleout_not_eligible")
         resolution["upscale_eligible"] = False
         return None, resolution
     if current_replicas >= max_replicas:
@@ -1127,42 +1284,65 @@ def propose_upscale_action(
         resolution["upscale_eligible"] = False
         return None, resolution
 
-    target_p90, _src, target_sufficient = preferred_truth_or_ebpf_p90(metrics, target)
-    target_p90 = target_p90 if target_sufficient else safe_float(trigger.get("p90_ms", 0.0), 0.0)
-    scale_rps = max(preferred_rps(metrics, target), safe_float(trigger.get("rps", 0.0), 0.0))
-    target_slo = max(1.0, safe_float(target_cfg.get("slo", trigger.get("slo_ms", 0.0)), trigger.get("slo_ms", 1.0)))
-    runq_ms = runq_latency_ms(metrics, target)
-    runq_threshold = runq_threshold_ms(metrics, target)
-    err5xx = error_rate_5xx(metrics, target)
-    timeout = timeout_rate(metrics, target)
+    admissible, admissible_reason, target_signal = target_admissibility(final_reason, target, target_cfg, metrics, trigger)
+    if not admissible:
+        resolution["blocked_by"] = admissible_reason
+        resolution["upscale_eligible"] = False
+        return None, resolution
+
+    target_p90 = safe_float(target_signal.get("p90_ms", 0.0), 0.0)
+    target_slo = max(1.0, safe_float(target_signal.get("slo_ms", 0.0), 1.0))
+    scale_rps = safe_float(target_signal.get("rps", 0.0), 0.0)
+    runq_ms = safe_float(target_signal.get("runq_ms", 0.0), 0.0)
+    runq_threshold = safe_float(target_signal.get("runq_threshold_ms", 0.0), 0.0)
+    err5xx = safe_float(target_signal.get("error_rate_5xx", 0.0), 0.0)
+    timeout = safe_float(target_signal.get("timeout_rate", 0.0), 0.0)
+    current_replicas = safe_int(target_signal.get("current_replicas", current_replicas), current_replicas)
     rps_per_replica = scale_rps / max(current_replicas, 1)
-    target_per_replica = target_rps_per_replica(target)
     ratio = target_p90 / max(target_slo, 1.0)
     improving_after_recent_scale = recent_scale_improving(target, target_p90, ratio, err5xx, timeout, runq_ms)
-    strong = bool(
+    runq_only_signal = bool(
+        target_signal.get("runq_breach", False)
+        and not target_signal.get("p90_breach", False)
+        and not target_signal.get("error_breach", False)
+        and not target_signal.get("timeout_breach", False)
+    )
+
+    if (
+        ratio >= 1.75
+        or runq_ms >= (runq_threshold * 3.0)
+        or err5xx >= (OVERLOAD_ERROR_RATE_THRESHOLD * 2.0)
+        or timeout >= (OVERLOAD_TIMEOUT_RATE_THRESHOLD * 2.0)
+    ):
+        step = 4
+        scale_mode = "very_severe"
+    elif (
         ratio >= 1.35
-        or rps_per_replica >= (target_per_replica * 1.5)
         or runq_ms >= (runq_threshold * 2.0)
         or err5xx >= OVERLOAD_ERROR_RATE_THRESHOLD
         or timeout >= OVERLOAD_TIMEOUT_RATE_THRESHOLD
-    )
-    scale_mode = "aggressive" if (strong and not improving_after_recent_scale) else "small"
-    if scale_mode == "aggressive":
-        if current_replicas <= 2:
-            step = max(2, int(math.ceil(current_replicas * 1.0)))
-        elif current_replicas <= 5:
-            step = 2
-        else:
-            step = 2 if (ratio >= 1.6 or rps_per_replica >= (target_per_replica * 1.8)) else 1
-        proposed_target = current_replicas + step
+    ):
+        step = 3
+        scale_mode = "strong"
     else:
-        if current_replicas >= 8:
-            small_step = 1
-        elif current_replicas >= 4:
-            small_step = 1 if improving_after_recent_scale else 2
-        else:
-            small_step = 2 if (ratio >= 1.1 or rps_per_replica >= target_per_replica) else 1
-        proposed_target = current_replicas + small_step
+        step = 2
+        scale_mode = "moderate"
+
+    if improving_after_recent_scale:
+        step = max(2, step - 1)
+        scale_mode = "moderate" if step == 2 else scale_mode
+    if runq_only_signal and scale_rps < max(RUNQ_ONLY_MIN_RPS * 2.0, target_rps_per_replica(target)):
+        step = min(step, 2)
+        scale_mode = "moderate"
+    if current_replicas >= 8:
+        step = min(step, 2)
+        scale_mode = "moderate"
+    elif current_replicas >= 5:
+        step = min(step, 3)
+        if scale_mode == "very_severe" and step < 4:
+            scale_mode = "strong"
+
+    proposed_target = current_replicas + step
     target_replicas = max(min_replicas, min(max_replicas, proposed_target))
     if target_replicas <= current_replicas:
         resolution["blocked_by"] = "target_not_above_current"
@@ -1217,7 +1397,7 @@ def propose_upscale_action(
         "max_replicas": max_replicas,
         "clamp_applied": bool(target_replicas != proposed_target),
         "desired_replicas_from_traffic": 0,
-        "target_rps_per_replica": float(target_per_replica),
+        "target_rps_per_replica": float(target_rps_per_replica(target)),
         "runq_pct": runq_pct(metrics, target),
         "throttle_pct": throttle_pct(metrics, target),
         "local_resource_support": local_resource_support(metrics, target),
@@ -1235,6 +1415,11 @@ def propose_upscale_action(
         "error_rate_5xx": float(err5xx),
         "timeout_rate": float(timeout),
         "improving_after_recent_scale": bool(improving_after_recent_scale),
+        "scaleout_eligible": bool(trigger.get("scaleout_eligible", False)),
+        "scaleout_block_reason": str(trigger.get("scaleout_block_reason", "")),
+        "target_admissible": True,
+        "target_admissible_reason": str(admissible_reason),
+        "service_priority": service_priority(target),
     }
     return action, resolution
 
@@ -1245,10 +1430,11 @@ def pick_best_action(actions: List[dict]) -> Optional[dict]:
 
     def action_key(action: dict):
         return (
-            0 if str(action.get("scale_mode", "small")) == "aggressive" else 1,
+            0 if str(action.get("path_reason", "")) == "downstream_delay" else 1,
             -len(list(action.get("path", []))),
+            -safe_int(action.get("service_priority", 0), 0),
+            safe_int(action.get("step", 0), 0),
             -safe_float(action.get("ratio", 0.0), 0.0),
-            -safe_float(action.get("rps_per_replica", 0.0), 0.0),
             str(action.get("trigger_service", "")),
             str(action.get("target_service", "")),
         )
@@ -1324,6 +1510,10 @@ def emit_trace(
     rps_per_replica: float = 0.0,
     error_rate_5xx_value: float = 0.0,
     timeout_rate_value: float = 0.0,
+    scaleout_eligible: bool = False,
+    scaleout_block_reason: str = "",
+    target_admissible: bool = False,
+    target_admissible_reason: str = "",
 ) -> None:
     if decision == "scale_up":
         action = f"scale_to_{target_replicas}"
@@ -1347,6 +1537,10 @@ def emit_trace(
         "pressure_window_1": bool(pressure_window_1),
         "pressure_window_2": bool(pressure_window_2),
         "pressure_confirmed": bool(pressure_confirmed),
+        "scaleout_eligible": bool(scaleout_eligible),
+        "scaleout_block_reason": str(scaleout_block_reason or ""),
+        "target_admissible": bool(target_admissible),
+        "target_admissible_reason": str(target_admissible_reason or ""),
         "current_replicas": int(current_replicas),
         "target_replicas": int(target_replicas),
         "actual_replica_change": int(actual_replica_change),
@@ -1386,21 +1580,39 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         return None
     if recent_breach_hold_active(service):
         return None
+    if recent_true_target_hold_active(service):
+        return None
     short_rps = safe_float((snapshot or {}).get("rps", preferred_rps(metrics, service)), 0.0)
+    p90_ms = safe_float((snapshot or {}).get("p90_ms", preferred_truth_or_ebpf_p90(metrics, service)[0]), 0.0)
+    slo_ms = max(1.0, safe_float((snapshot or {}).get("slo_ms", cfg.get("slo", 0.0)), 0.0))
+    err5xx = safe_float((snapshot or {}).get("error_rate_5xx", error_rate_5xx(metrics, service)), 0.0)
+    timeout = safe_float((snapshot or {}).get("timeout_rate", timeout_rate(metrics, service)), 0.0)
+    runq_ms = runq_latency_ms(metrics, service)
     target_per_replica = target_rps_per_replica(service)
-    desired_replicas_from_traffic = max(min_replicas, int(math.ceil(short_rps / max(target_per_replica, 0.1)))) if short_rps > 0 else min_replicas
+    needed_replicas = max(min_replicas, int(math.ceil(short_rps / max(target_per_replica, 0.1)))) if short_rps > 0 else min_replicas
     previous_rps = LAST_SHORT_RPS.get(service, short_rps)
     rising_again = short_rps > max(previous_rps * 1.1, previous_rps + 0.5)
-    low_demand = bool(desired_replicas_from_traffic < current_replicas and not rising_again and short_rps < max(current_replicas * target_per_replica * 0.75, 1.0))
+    healthy = bool(
+        p90_ms > 0.0
+        and p90_ms <= (slo_ms * 0.75)
+        and err5xx <= (OVERLOAD_ERROR_RATE_THRESHOLD * 0.25)
+        and timeout <= (OVERLOAD_TIMEOUT_RATE_THRESHOLD * 0.25)
+        and runq_ms <= max(runq_threshold_ms(metrics, service) * 0.5, 1.0)
+    )
+    low_demand = bool(needed_replicas < current_replicas and not rising_again and short_rps < max(current_replicas * target_per_replica * 0.8, 1.0))
     history = update_window_history(LOW_DEMAND_WINDOWS, service, low_demand, DOWNSCALE_WINDOW_COUNT)
     if len(history) < DOWNSCALE_WINDOW_COUNT or not all(history):
         return None
     if cooldown_active(DOWNSCALE_COOLDOWNS, service):
         return None
-    overprovisioned = bool(snapshot and overprovisioned_for_downscale(service, snapshot, current_replicas, target_per_replica, previous_rps))
-    downscale_step = 2 if current_replicas >= 6 and (overprovisioned or desired_replicas_from_traffic <= current_replicas - 2) else 1
+    overprovisioned = bool(
+        healthy
+        and needed_replicas <= max(min_replicas, current_replicas - 1)
+        and short_rps / max(current_replicas, 1) <= (target_per_replica * 0.65)
+    )
+    downscale_step = 2 if current_replicas >= 6 and (overprovisioned or needed_replicas <= current_replicas - 2) else 1
     target = max(min_replicas, current_replicas - downscale_step)
-    target = max(target, desired_replicas_from_traffic)
+    target = max(target, needed_replicas)
     if target >= current_replicas:
         return None
 
@@ -1413,16 +1625,15 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         "short_rps": short_rps,
         "long_rps": 0.0,
         "target_rps_per_replica": target_per_replica,
-        "desired_replicas_from_traffic": desired_replicas_from_traffic,
-        "runq_ms": runq_latency_ms(metrics, service),
+        "desired_replicas_from_traffic": needed_replicas,
+        "runq_ms": runq_ms,
         "reason": "low_demand_confirmed",
         "downscale_reason": "overprovisioned_downscale" if overprovisioned else "low_demand_confirmed",
         "downscale_step": int(current_replicas - target),
-        "traffic_pattern": "low_demand",
         "rps_growth": short_rps - previous_rps,
-        "short_p90_ms": safe_float(snapshot.get("p90_ms", 0.0), 0.0) if snapshot else 0.0,
-        "trigger_slo": safe_float(snapshot.get("slo_ms", 0.0), 0.0) if snapshot else 0.0,
-        "target_from_traffic": desired_replicas_from_traffic,
+        "short_p90_ms": p90_ms,
+        "trigger_slo": slo_ms,
+        "target_from_traffic": needed_replicas,
         "target_from_slo": current_replicas,
         "runq_pct": runq_pct(metrics, service),
         "throttle_pct": throttle_pct(metrics, service),
@@ -1432,11 +1643,15 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
         "pressure_window_2": False,
         "pressure_confirmed": False,
         "scale_mode": "none",
-        "trigger_reason": "low_demand",
+        "trigger_reason": "overprovisioned" if overprovisioned else "low_demand",
         "rps_per_replica": short_rps / max(current_replicas, 1),
-        "error_rate_5xx": error_rate_5xx(metrics, service),
-        "timeout_rate": timeout_rate(metrics, service),
+        "error_rate_5xx": err5xx,
+        "timeout_rate": timeout,
         "overprovisioned": overprovisioned,
+        "scaleout_eligible": False,
+        "scaleout_block_reason": "",
+        "target_admissible": False,
+        "target_admissible_reason": "",
     }
 
 
@@ -1531,6 +1746,7 @@ def main():
                     }
                     resolution_target = resolution.get("target", service)
                     resolution_replicas, _resolution_ready = read_replicas(resolution_target)
+                    resolution_cfg = slo_cfgs.get(resolution_target, cfg)
                     emit_trace(
                         trigger_service=service,
                         final_target_service=resolution_target,
@@ -1576,6 +1792,12 @@ def main():
                         rps_per_replica=(snapshot["rps"] / max(read_replicas(resolution_target)[0], 1)),
                         error_rate_5xx_value=float(snapshot.get("error_rate_5xx", 0.0)),
                         timeout_rate_value=float(snapshot.get("timeout_rate", 0.0)),
+                        min_replicas=max(1, safe_int(resolution_cfg.get("min", 1), 1)),
+                        max_replicas=max(1, safe_int(resolution_cfg.get("max", 1), 1)),
+                        scaleout_eligible=bool(snapshot.get("scaleout_eligible", False)),
+                        scaleout_block_reason=str(snapshot.get("scaleout_block_reason", resolution.get("blocked_by", ""))),
+                        target_admissible=False,
+                        target_admissible_reason=str(resolution.get("blocked_by", "")),
                     )
 
                 downscale = propose_downscale_action(service, metrics, cfg, snapshot=snapshot)
@@ -1588,6 +1810,7 @@ def main():
             if chosen:
                 patch_replicas(chosen["target_service"], chosen["target_replicas"])
                 set_cooldown(UPSCALE_COOLDOWNS, chosen["target_service"], int(max(1.0, UPSCALE_COOLDOWN_S)))
+                RECENT_TRUE_TARGET_AT[chosen["target_service"]] = time.time()
                 record_scale_event(
                     chosen["target_service"],
                     chosen["current_replicas"],
@@ -1655,6 +1878,10 @@ def main():
                     rps_per_replica=safe_float(chosen.get("rps_per_replica", 0.0), 0.0),
                     error_rate_5xx_value=safe_float(chosen.get("error_rate_5xx", 0.0), 0.0),
                     timeout_rate_value=safe_float(chosen.get("timeout_rate", 0.0), 0.0),
+                    scaleout_eligible=bool(chosen.get("scaleout_eligible", True)),
+                    scaleout_block_reason=str(chosen.get("scaleout_block_reason", "")),
+                    target_admissible=bool(chosen.get("target_admissible", True)),
+                    target_admissible_reason=str(chosen.get("target_admissible_reason", "")),
                 )
             elif downscale_actions:
                 chosen_downscale = sorted(downscale_actions, key=lambda row: (safe_float(row["rps"], 0.0), row["service"]))[0]
@@ -1705,6 +1932,12 @@ def main():
                     rps_per_replica=safe_float(chosen_downscale.get("rps_per_replica", 0.0), 0.0),
                     error_rate_5xx_value=safe_float(chosen_downscale.get("error_rate_5xx", 0.0), 0.0),
                     timeout_rate_value=safe_float(chosen_downscale.get("timeout_rate", 0.0), 0.0),
+                    min_replicas=max(1, safe_int(slo_cfgs[chosen_downscale["service"]].get("min", 1), 1)),
+                    max_replicas=max(1, safe_int(slo_cfgs[chosen_downscale["service"]].get("max", 1), 1)),
+                    scaleout_eligible=False,
+                    scaleout_block_reason="downscale_path",
+                    target_admissible=False,
+                    target_admissible_reason="downscale_path",
                 )
 
             READY_STATE["ready"] = True
