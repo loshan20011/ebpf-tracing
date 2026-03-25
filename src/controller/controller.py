@@ -36,10 +36,12 @@ PRESSURE_WINDOW_COUNT = 2
 DOWNSCALE_WINDOW_COUNT = max(2, int(math.ceil(DOWNSCALE_DECISION_WINDOW_SECONDS / max(LOOP_SECONDS, 1.0))))
 RUNQ_ONLY_MIN_RPS = float(os.getenv("RUNQ_ONLY_MIN_RPS", "3.0"))
 RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR = float(os.getenv("RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR", "0.5"))
-FRONTEND_FIRST_MIN_REPLICAS = max(1, int(os.getenv("FRONTEND_FIRST_MIN_REPLICAS", "5")))
+ROOT_PROTECTION_MIN_REPLICAS = max(1, int(os.getenv("ROOT_PROTECTION_MIN_REPLICAS", "5")))
 DOWNSTREAM_DIRECT_SIGNAL_RATIO = float(os.getenv("DOWNSTREAM_DIRECT_SIGNAL_RATIO", "1.15"))
 DOWNSTREAM_RUNQ_MIN_RPS_FACTOR = float(os.getenv("DOWNSTREAM_RUNQ_MIN_RPS_FACTOR", "0.75"))
-CARTS_RUNQ_MIN_RPS = float(os.getenv("CARTS_RUNQ_MIN_RPS", "8.0"))
+DOWNSTREAM_HEALTHY_RATIO_CAP = float(os.getenv("DOWNSTREAM_HEALTHY_RATIO_CAP", "0.95"))
+DOWNSTREAM_HEALTHY_MAX_STEP = max(1, int(os.getenv("DOWNSTREAM_HEALTHY_MAX_STEP", "1")))
+DOWNSTREAM_SOFT_REPLICA_CAP = max(1, int(os.getenv("DOWNSTREAM_SOFT_REPLICA_CAP", "8")))
 LOW_DEMAND_STREAK_REQUIRED = int(
     os.getenv(
         "LOW_DEMAND_STREAK_REQUIRED",
@@ -68,6 +70,8 @@ DOWNSCALE_COOLDOWN_S = int(os.getenv("DOWNSCALE_COOLDOWN_S", "20"))
 RUNQ_FIXED_THRESHOLD_MS = float(os.getenv("RUNQ_FIXED_THRESHOLD_MS", "3.0"))
 DOWNSCALE_RUNQ_FACTOR = float(os.getenv("DOWNSCALE_RUNQ_FACTOR", "0.5"))
 DOWNSCALE_RUNQ_MARGIN_MS = float(os.getenv("DOWNSCALE_RUNQ_MARGIN_MS", "1.0"))
+DOWNSCALE_HEALTHY_RATIO_CAP = float(os.getenv("DOWNSCALE_HEALTHY_RATIO_CAP", "0.65"))
+DOWNSCALE_OVERPROVISION_RPS_FACTOR = float(os.getenv("DOWNSCALE_OVERPROVISION_RPS_FACTOR", "0.75"))
 OVERLOAD_ERROR_RATE_THRESHOLD = float(os.getenv("OVERLOAD_ERROR_RATE_THRESHOLD", "0.1"))
 OVERLOAD_TIMEOUT_RATE_THRESHOLD = float(os.getenv("OVERLOAD_TIMEOUT_RATE_THRESHOLD", "0.02"))
 BREACH_STREAK_REQUIRED = int(os.getenv("BREACH_STREAK_REQUIRED", "2"))
@@ -118,28 +122,6 @@ except Exception:
 
 app_api = client.AppsV1Api()
 custom_api = client.CustomObjectsApi()
-
-
-def parse_service_priority_map(raw: str) -> Dict[str, int]:
-    priorities: Dict[str, int] = {}
-    for chunk in str(raw or "").split(","):
-        item = chunk.strip()
-        if not item or ":" not in item:
-            continue
-        service, score = item.split(":", 1)
-        service = service.strip()
-        if not service:
-            continue
-        try:
-            priorities[service] = int(score.strip())
-        except Exception:
-            priorities[service] = 0
-    return priorities
-
-
-BENCHMARK_PATH_PRIORITY = parse_service_priority_map(
-    os.getenv("BENCHMARK_PATH_PRIORITY", "front-end:100,user:90,catalogue:40,carts:10")
-)
 
 
 def resolve_redis_endpoint() -> Tuple[str, int]:
@@ -216,10 +198,6 @@ def target_rps_per_replica(service: str) -> float:
     return max(0.1, TARGET_RPS_PER_REPLICA)
 
 
-def service_priority(service: str) -> int:
-    return safe_int(BENCHMARK_PATH_PRIORITY.get(service, 0), 0)
-
-
 def meaningful_demand(service: str, rps: float, current_replicas: int) -> bool:
     per_replica = rps / max(current_replicas, 1)
     demand_floor = target_rps_per_replica(service) * RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR
@@ -231,13 +209,13 @@ def recent_true_target_hold_active(service: str) -> bool:
     return ts > 0.0 and (time.time() - ts) < RECENT_TARGET_HOLD_S
 
 
-def frontend_protection_needed() -> bool:
+def root_service_protection_needed() -> bool:
     try:
         desired, ready = read_replicas(ROOT_SERVICE)
     except Exception:
         return False
     current = max(desired, ready, 0)
-    return current < FRONTEND_FIRST_MIN_REPLICAS
+    return current < ROOT_PROTECTION_MIN_REPLICAS
 
 
 def runq_latency_ms(metrics, svc: str) -> float:
@@ -1089,8 +1067,6 @@ def target_admissibility(
             RUNQ_ONLY_MIN_RPS * 2.0,
             target_rps_per_replica(target) * DOWNSTREAM_RUNQ_MIN_RPS_FACTOR,
         )
-        if target == "carts":
-            downstream_runq_floor = max(downstream_runq_floor, CARTS_RUNQ_MIN_RPS)
         if direct_signal:
             return True, "downstream_direct_signal", {
                 "p90_ms": target_p90,
@@ -1371,14 +1347,13 @@ def propose_upscale_action(
         resolution["upscale_eligible"] = False
         return None, resolution
 
-    protecting_frontend = bool(
+    protecting_root_service = bool(
         service == ROOT_SERVICE
         and target != ROOT_SERVICE
-        and target in {"user", "carts"}
-        and frontend_protection_needed()
+        and root_service_protection_needed()
     )
-    if protecting_frontend and not bool(target_signal.get("direct_signal", False)):
-        resolution["blocked_by"] = "frontend_protection_first"
+    if protecting_root_service and not bool(target_signal.get("direct_signal", False)):
+        resolution["blocked_by"] = "root_service_protection_first"
         resolution["upscale_eligible"] = False
         return None, resolution
 
@@ -1400,6 +1375,12 @@ def propose_upscale_action(
         and not target_signal.get("timeout_breach", False)
     )
     direct_target_signal = bool(target_signal.get("direct_signal", False))
+    healthy_downstream = bool(
+        final_reason == "downstream_delay"
+        and ratio <= DOWNSTREAM_HEALTHY_RATIO_CAP
+        and err5xx <= (OVERLOAD_ERROR_RATE_THRESHOLD * 0.25)
+        and timeout <= (OVERLOAD_TIMEOUT_RATE_THRESHOLD * 0.25)
+    )
 
     if (
         ratio >= 1.75
@@ -1427,13 +1408,18 @@ def propose_upscale_action(
     if runq_only_signal and scale_rps < max(RUNQ_ONLY_MIN_RPS * 2.0, target_rps_per_replica(target)):
         step = min(step, 2)
         scale_mode = "moderate"
-    if target in {"user", "carts"} and service == ROOT_SERVICE:
-        if frontend_protection_needed() and not direct_target_signal:
-            step = min(step, 2)
-            scale_mode = "moderate"
-        if target == "carts" and not direct_target_signal:
-            step = min(step, 2)
-            scale_mode = "moderate"
+    if final_reason == "downstream_delay" and not direct_target_signal:
+        step = min(step, 2)
+        scale_mode = "moderate"
+    if healthy_downstream:
+        step = min(step, DOWNSTREAM_HEALTHY_MAX_STEP)
+        scale_mode = "moderate"
+    if final_reason == "downstream_delay" and current_replicas >= DOWNSTREAM_SOFT_REPLICA_CAP and ratio < 1.05:
+        step = min(step, DOWNSTREAM_HEALTHY_MAX_STEP)
+        scale_mode = "moderate"
+    if protecting_root_service and not direct_target_signal:
+        step = min(step, 2)
+        scale_mode = "moderate"
     if current_replicas >= 8:
         step = min(step, 2)
         scale_mode = "moderate"
@@ -1519,9 +1505,9 @@ def propose_upscale_action(
         "scaleout_block_reason": str(trigger.get("scaleout_block_reason", "")),
         "target_admissible": True,
         "target_admissible_reason": str(admissible_reason),
-        "service_priority": service_priority(target),
         "direct_target_signal": direct_target_signal,
-        "frontend_protection_needed": protecting_frontend,
+        "root_service_protection_needed": protecting_root_service,
+        "healthy_downstream": healthy_downstream,
     }
     return action, resolution
 
@@ -1532,11 +1518,10 @@ def pick_best_action(actions: List[dict]) -> Optional[dict]:
 
     def action_key(action: dict):
         return (
-            0 if (str(action.get("target_service", "")) == ROOT_SERVICE and bool(action.get("frontend_protection_needed", False))) else 1,
+            0 if (str(action.get("target_service", "")) == ROOT_SERVICE and bool(action.get("root_service_protection_needed", False))) else 1,
             0 if bool(action.get("direct_target_signal", False)) else 1,
-            -safe_int(action.get("service_priority", 0), 0),
             0 if str(action.get("path_reason", "")) == "downstream_delay" and bool(action.get("direct_target_signal", False)) else 1,
-            -len(list(action.get("path", []))),
+            len(list(action.get("path", []))),
             safe_int(action.get("step", 0), 0),
             -safe_float(action.get("ratio", 0.0), 0.0),
             str(action.get("trigger_service", "")),
@@ -1712,9 +1697,10 @@ def propose_downscale_action(service: str, metrics: dict, cfg: dict, snapshot: O
     overprovisioned = bool(
         healthy
         and needed_replicas <= max(min_replicas, current_replicas - 1)
-        and short_rps / max(current_replicas, 1) <= (target_per_replica * 0.65)
+        and short_rps / max(current_replicas, 1) <= (target_per_replica * DOWNSCALE_OVERPROVISION_RPS_FACTOR)
+        and p90_ms <= (slo_ms * DOWNSCALE_HEALTHY_RATIO_CAP)
     )
-    downscale_step = 2 if current_replicas >= 6 and (overprovisioned or needed_replicas <= current_replicas - 2) else 1
+    downscale_step = 2 if current_replicas >= 5 and (overprovisioned or needed_replicas <= current_replicas - 2) else 1
     target = max(min_replicas, current_replicas - downscale_step)
     target = max(target, needed_replicas)
     if target >= current_replicas:

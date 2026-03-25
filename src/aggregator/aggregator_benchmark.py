@@ -1,17 +1,61 @@
+import json
 import os
 from datetime import datetime, timezone
 
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 TRAFFIC_TARGET_BASE_URL = os.getenv("TRAFFIC_TARGET_BASE_URL", "http://gateway")
+SOCKSHOP_NAMESPACES = {
+    item.strip()
+    for item in os.getenv("SOCKSHOP_NAMESPACES", "sock-shop").split(",")
+    if item.strip()
+}
+SOCKSHOP_ENTRY_SERVICE = os.getenv("SOCKSHOP_ENTRY_SERVICE", "front-end").strip() or "front-end"
+SYNTHETIC_ENTRY_SERVICE = os.getenv("SYNTHETIC_ENTRY_SERVICE", "gateway").strip() or "gateway"
+SYNTHETIC_SERVICE_PREFIX = os.getenv("SYNTHETIC_SERVICE_PREFIX", "svc-").strip() or "svc-"
+
+
+def parse_routes_json(raw, default_routes):
+    if not str(raw or "").strip():
+        return list(default_routes)
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return list(default_routes)
+    if not isinstance(parsed, list):
+        return list(default_routes)
+    routes = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        routes.append(
+            traffic_route(
+                item.get("name", ""),
+                item.get("label", item.get("name", "")),
+                item.get("path", "/"),
+                item.get("targetDeployment", item.get("target_deployment", "")),
+            )
+        )
+    return routes or list(default_routes)
+
+
+DEFAULT_SOCKSHOP_ROUTES = [
+    traffic_route("home", "Home", "/", "front-end"),
+    traffic_route("catalogue", "Catalogue API", "/catalogue", "catalogue"),
+    traffic_route("category", "Category Page", "/category.html", "front-end"),
+    traffic_route("basket_view", "Basket Page", "/basket.html", "carts"),
+    traffic_route("login", "Login", "/login", "user"),
+    traffic_route("customer_orders", "Customer Orders", "/customer-orders.html", "orders"),
+]
+SOCKSHOP_TRAFFIC_ROUTES = parse_routes_json(os.getenv("SOCKSHOP_TRAFFIC_ROUTES_JSON", ""), DEFAULT_SOCKSHOP_ROUTES)
 
 
 def route_to_path(route):
     if not route:
         return ""
     path = str(route).strip().lower()
-    if path.startswith("svc-"):
-        path = path[4:]
+    if path.startswith(SYNTHETIC_SERVICE_PREFIX):
+        path = path[len(SYNTHETIC_SERVICE_PREFIX) :]
     if path.startswith("/"):
         path = path[1:]
     return path
@@ -24,8 +68,8 @@ def derive_routes_from_slos(slo_cfg):
             continue
         norm = str(name).strip()
         routes.add(norm)
-        if norm.startswith("svc-") and len(norm) > 4:
-            routes.add(norm[4:])
+        if norm.startswith(SYNTHETIC_SERVICE_PREFIX) and len(norm) > len(SYNTHETIC_SERVICE_PREFIX):
+            routes.add(norm[len(SYNTHETIC_SERVICE_PREFIX) :])
     return sorted(routes)
 
 
@@ -54,25 +98,17 @@ def detect_benchmark_profile(namespace, deployment_rows, slo_cfg):
     names = {str(row.get("name", "")).strip() for row in deployment_rows if row.get("name")}
     namespace = str(namespace or TARGET_NAMESPACE).strip() or TARGET_NAMESPACE
 
-    if namespace == "sock-shop" or "front-end" in names:
-        routes = [
-            traffic_route("home", "Home", "/", "front-end"),
-            traffic_route("catalogue", "Catalogue API", "/catalogue", "catalogue"),
-            traffic_route("category", "Category Page", "/category.html", "front-end"),
-            traffic_route("basket_view", "Basket Page", "/basket.html", "carts"),
-            traffic_route("login", "Login", "/login", "user"),
-            traffic_route("customer_orders", "Customer Orders", "/customer-orders.html", "orders"),
-        ]
+    if namespace in SOCKSHOP_NAMESPACES or SOCKSHOP_ENTRY_SERVICE in names:
         return {
             "id": "sock-shop",
             "name": "Sock Shop",
-            "entryService": "front-end",
-            "trafficBaseUrl": in_cluster_service_url("front-end", namespace),
-            "trafficRoutes": routes,
+            "entryService": SOCKSHOP_ENTRY_SERVICE,
+            "trafficBaseUrl": in_cluster_service_url(SOCKSHOP_ENTRY_SERVICE, namespace),
+            "trafficRoutes": list(SOCKSHOP_TRAFFIC_ROUTES),
             "note": "Traffic jobs should target the Sock Shop front-end service inside the cluster.",
         }
 
-    if "gateway" in names or any(name.startswith("svc-") for name in names):
+    if SYNTHETIC_ENTRY_SERVICE in names or any(name.startswith(SYNTHETIC_SERVICE_PREFIX) for name in names):
         routes = []
         for name in sorted(slo_cfg.keys()):
             path_name = route_to_path(name)
@@ -81,8 +117,8 @@ def detect_benchmark_profile(namespace, deployment_rows, slo_cfg):
         return {
             "id": "thrive-demo",
             "name": "ThriveScale Synthetic Demo",
-            "entryService": "gateway",
-            "trafficBaseUrl": in_cluster_service_url("gateway", namespace),
+            "entryService": SYNTHETIC_ENTRY_SERVICE,
+            "trafficBaseUrl": in_cluster_service_url(SYNTHETIC_ENTRY_SERVICE, namespace),
             "trafficRoutes": routes,
             "note": "Traffic jobs target the synthetic gateway service used for controlled autoscaling validation.",
         }

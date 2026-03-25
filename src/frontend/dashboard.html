@@ -506,7 +506,7 @@
             <select id="cRoute"></select>
           </label>
           <label>Path Override
-            <input id="cPath" placeholder="/catalogue" />
+            <input id="cPath" placeholder="/your-path" />
           </label>
           <label>Target RPS
             <input id="cRps" type="number" min="1" value="25" />
@@ -1033,7 +1033,7 @@
         card.innerHTML = `
           <strong>${escapeHtml(route.label || route.name || route.path || "/")}</strong>
           <div class="mini">Path: <span class="route-path">${escapeHtml(route.path || "/")}</span></div>
-          <div class="mini">Targets: ${escapeHtml(route.targetDeployment || benchmark.entryService || "front-end")}</div>
+          <div class="mini">Targets: ${escapeHtml(route.targetDeployment || benchmark.entryService || "-")}</div>
         `;
         wrap.appendChild(card);
       }

@@ -24,7 +24,7 @@ require_cmd() {
 }
 
 init_layout() {
-  mkdir -p "${RESULTS_DIR}/noautoscale" "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/thrivescale"
+  mkdir -p "${RESULTS_DIR}/noautoscale" "${RESULTS_DIR}/hpa50" "${RESULTS_DIR}/hpa70" "${RESULTS_DIR}/thrivescale"
   if [[ ! -f "${DEFAULT_WORKLOAD_FILE}" ]]; then
     cat > "${DEFAULT_WORKLOAD_FILE}" <<'EOF'
 [
@@ -411,6 +411,10 @@ prepare_arm() {
       disable_thrivescale_control
       apply_hpa_profile 50
       ;;
+    hpa70)
+      disable_thrivescale_control
+      apply_hpa_profile 70
+      ;;
     thrivescale)
       delete_hpas
       apply_thrivescale_slos
@@ -546,7 +550,7 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-arms = [("noautoscale", "No Autoscaler"), ("hpa50", "HPA-50"), ("thrivescale", "ThriveScale")]
+arms = [("noautoscale", "No Autoscaler"), ("hpa50", "HPA-50"), ("hpa70", "HPA-70"), ("thrivescale", "ThriveScale")]
 rows = []
 for folder, label in arms:
     summary_path = root / folder / "summary.json"
@@ -601,7 +605,7 @@ show_usage() {
 Usage:
   $(basename "$0") prepare
   $(basename "$0") verify
-  $(basename "$0") run-arm <noautoscale|hpa50|thrivescale>
+  $(basename "$0") run-arm <noautoscale|hpa50|hpa70|thrivescale>
   $(basename "$0") compare
 
 Outputs:
@@ -609,6 +613,7 @@ Outputs:
   workload state:  ${FALLBACK_STATE_FILE}
   no autoscale results: ${RESULTS_DIR}/noautoscale
   hpa50 results:   ${RESULTS_DIR}/hpa50
+  hpa70 results:   ${RESULTS_DIR}/hpa70
   thrive results:  ${RESULTS_DIR}/thrivescale
 EOF
 }
