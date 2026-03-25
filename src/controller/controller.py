@@ -36,6 +36,10 @@ PRESSURE_WINDOW_COUNT = 2
 DOWNSCALE_WINDOW_COUNT = max(2, int(math.ceil(DOWNSCALE_DECISION_WINDOW_SECONDS / max(LOOP_SECONDS, 1.0))))
 RUNQ_ONLY_MIN_RPS = float(os.getenv("RUNQ_ONLY_MIN_RPS", "3.0"))
 RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR = float(os.getenv("RUNQ_ONLY_MIN_RPS_PER_REPLICA_FACTOR", "0.5"))
+FRONTEND_FIRST_MIN_REPLICAS = max(1, int(os.getenv("FRONTEND_FIRST_MIN_REPLICAS", "5")))
+DOWNSTREAM_DIRECT_SIGNAL_RATIO = float(os.getenv("DOWNSTREAM_DIRECT_SIGNAL_RATIO", "1.15"))
+DOWNSTREAM_RUNQ_MIN_RPS_FACTOR = float(os.getenv("DOWNSTREAM_RUNQ_MIN_RPS_FACTOR", "0.75"))
+CARTS_RUNQ_MIN_RPS = float(os.getenv("CARTS_RUNQ_MIN_RPS", "8.0"))
 LOW_DEMAND_STREAK_REQUIRED = int(
     os.getenv(
         "LOW_DEMAND_STREAK_REQUIRED",
@@ -225,6 +229,15 @@ def meaningful_demand(service: str, rps: float, current_replicas: int) -> bool:
 def recent_true_target_hold_active(service: str) -> bool:
     ts = float(RECENT_TRUE_TARGET_AT.get(service, 0.0) or 0.0)
     return ts > 0.0 and (time.time() - ts) < RECENT_TARGET_HOLD_S
+
+
+def frontend_protection_needed() -> bool:
+    try:
+        desired, ready = read_replicas(ROOT_SERVICE)
+    except Exception:
+        return False
+    current = max(desired, ready, 0)
+    return current < FRONTEND_FIRST_MIN_REPLICAS
 
 
 def runq_latency_ms(metrics, svc: str) -> float:
@@ -1046,6 +1059,12 @@ def target_admissibility(
     error_breach = bool(err5xx >= OVERLOAD_ERROR_RATE_THRESHOLD)
     timeout_breach = bool(timeout >= OVERLOAD_TIMEOUT_RATE_THRESHOLD)
     runq_breach = bool(runq_ms > runq_threshold)
+    direct_signal = bool(
+        p90_breach
+        or error_breach
+        or timeout_breach
+        or (target_sufficient and (target_p90 / max(target_slo, 1.0)) >= DOWNSTREAM_DIRECT_SIGNAL_RATIO)
+    )
 
     if final_reason == "external_or_unmonitored_delay":
         return False, "external_or_unmonitored_delay", {
@@ -1062,9 +1081,68 @@ def target_admissibility(
             "error_breach": error_breach,
             "timeout_breach": timeout_breach,
             "runq_breach": runq_breach,
+            "direct_signal": direct_signal,
         }
 
-    if p90_breach or error_breach or timeout_breach:
+    if final_reason == "downstream_delay":
+        downstream_runq_floor = max(
+            RUNQ_ONLY_MIN_RPS * 2.0,
+            target_rps_per_replica(target) * DOWNSTREAM_RUNQ_MIN_RPS_FACTOR,
+        )
+        if target == "carts":
+            downstream_runq_floor = max(downstream_runq_floor, CARTS_RUNQ_MIN_RPS)
+        if direct_signal:
+            return True, "downstream_direct_signal", {
+                "p90_ms": target_p90,
+                "slo_ms": target_slo,
+                "rps": scale_rps,
+                "runq_ms": runq_ms,
+                "runq_threshold_ms": runq_threshold,
+                "error_rate_5xx": err5xx,
+                "timeout_rate": timeout,
+                "current_replicas": current_replicas,
+                "demand_ok": demand_ok,
+                "p90_breach": p90_breach,
+                "error_breach": error_breach,
+                "timeout_breach": timeout_breach,
+                "runq_breach": runq_breach,
+                "direct_signal": direct_signal,
+            }
+        if runq_breach and demand_ok and scale_rps >= downstream_runq_floor:
+            return True, "downstream_runq_with_demand", {
+                "p90_ms": target_p90,
+                "slo_ms": target_slo,
+                "rps": scale_rps,
+                "runq_ms": runq_ms,
+                "runq_threshold_ms": runq_threshold,
+                "error_rate_5xx": err5xx,
+                "timeout_rate": timeout,
+                "current_replicas": current_replicas,
+                "demand_ok": demand_ok,
+                "p90_breach": p90_breach,
+                "error_breach": error_breach,
+                "timeout_breach": timeout_breach,
+                "runq_breach": runq_breach,
+                "direct_signal": direct_signal,
+            }
+        return False, "downstream_signal_too_weak", {
+            "p90_ms": target_p90,
+            "slo_ms": target_slo,
+            "rps": scale_rps,
+            "runq_ms": runq_ms,
+            "runq_threshold_ms": runq_threshold,
+            "error_rate_5xx": err5xx,
+            "timeout_rate": timeout,
+            "current_replicas": current_replicas,
+            "demand_ok": demand_ok,
+            "p90_breach": p90_breach,
+            "error_breach": error_breach,
+            "timeout_breach": timeout_breach,
+            "runq_breach": runq_breach,
+            "direct_signal": direct_signal,
+        }
+
+    if direct_signal:
         reason = "p90_or_error_signal"
         return True, reason, {
             "p90_ms": target_p90,
@@ -1080,6 +1158,7 @@ def target_admissibility(
             "error_breach": error_breach,
             "timeout_breach": timeout_breach,
             "runq_breach": runq_breach,
+            "direct_signal": direct_signal,
         }
 
     if runq_breach and demand_ok:
@@ -1097,6 +1176,7 @@ def target_admissibility(
             "error_breach": error_breach,
             "timeout_breach": timeout_breach,
             "runq_breach": runq_breach,
+            "direct_signal": direct_signal,
         }
 
     block_reason = "low_target_demand"
@@ -1116,6 +1196,7 @@ def target_admissibility(
         "error_breach": error_breach,
         "timeout_breach": timeout_breach,
         "runq_breach": runq_breach,
+        "direct_signal": direct_signal,
     }
 
 
@@ -1290,6 +1371,17 @@ def propose_upscale_action(
         resolution["upscale_eligible"] = False
         return None, resolution
 
+    protecting_frontend = bool(
+        service == ROOT_SERVICE
+        and target != ROOT_SERVICE
+        and target in {"user", "carts"}
+        and frontend_protection_needed()
+    )
+    if protecting_frontend and not bool(target_signal.get("direct_signal", False)):
+        resolution["blocked_by"] = "frontend_protection_first"
+        resolution["upscale_eligible"] = False
+        return None, resolution
+
     target_p90 = safe_float(target_signal.get("p90_ms", 0.0), 0.0)
     target_slo = max(1.0, safe_float(target_signal.get("slo_ms", 0.0), 1.0))
     scale_rps = safe_float(target_signal.get("rps", 0.0), 0.0)
@@ -1307,6 +1399,7 @@ def propose_upscale_action(
         and not target_signal.get("error_breach", False)
         and not target_signal.get("timeout_breach", False)
     )
+    direct_target_signal = bool(target_signal.get("direct_signal", False))
 
     if (
         ratio >= 1.75
@@ -1334,6 +1427,13 @@ def propose_upscale_action(
     if runq_only_signal and scale_rps < max(RUNQ_ONLY_MIN_RPS * 2.0, target_rps_per_replica(target)):
         step = min(step, 2)
         scale_mode = "moderate"
+    if target in {"user", "carts"} and service == ROOT_SERVICE:
+        if frontend_protection_needed() and not direct_target_signal:
+            step = min(step, 2)
+            scale_mode = "moderate"
+        if target == "carts" and not direct_target_signal:
+            step = min(step, 2)
+            scale_mode = "moderate"
     if current_replicas >= 8:
         step = min(step, 2)
         scale_mode = "moderate"
@@ -1420,6 +1520,8 @@ def propose_upscale_action(
         "target_admissible": True,
         "target_admissible_reason": str(admissible_reason),
         "service_priority": service_priority(target),
+        "direct_target_signal": direct_target_signal,
+        "frontend_protection_needed": protecting_frontend,
     }
     return action, resolution
 
@@ -1430,9 +1532,11 @@ def pick_best_action(actions: List[dict]) -> Optional[dict]:
 
     def action_key(action: dict):
         return (
-            0 if str(action.get("path_reason", "")) == "downstream_delay" else 1,
-            -len(list(action.get("path", []))),
+            0 if (str(action.get("target_service", "")) == ROOT_SERVICE and bool(action.get("frontend_protection_needed", False))) else 1,
+            0 if bool(action.get("direct_target_signal", False)) else 1,
             -safe_int(action.get("service_priority", 0), 0),
+            0 if str(action.get("path_reason", "")) == "downstream_delay" and bool(action.get("direct_target_signal", False)) else 1,
+            -len(list(action.get("path", []))),
             safe_int(action.get("step", 0), 0),
             -safe_float(action.get("ratio", 0.0), 0.0),
             str(action.get("trigger_service", "")),
