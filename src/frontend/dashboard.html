@@ -554,7 +554,11 @@
           <label>Manual replicas
             <input id="manualReplicas" type="number" min="0" value="1" />
           </label>
-          <button id="btnManualScale" class="danger">Set Replicas</button>
+          <button id="btnManualScale" class="danger">Set Once</button>
+        </div>
+        <div class="ctrl-grid" style="margin-top:8px">
+          <button id="btnPinScale">Pin Replicas</button>
+          <button id="btnUnpinScale" class="warn">Unpin Replicas</button>
         </div>
 
         <div id="controlMsg" class="msg dim"></div>
@@ -705,6 +709,8 @@
     const CONTROL_TRAFFIC_STOP_URL = "/api/control/traffic/stop";
     const CONTROL_SLO_UPDATE_URL = "/api/control/slo/update";
     const CONTROL_SCALE_URL = "/api/control/scale";
+    const CONTROL_SCALE_PIN_URL = "/api/control/scale/pin";
+    const CONTROL_SCALE_UNPIN_URL = "/api/control/scale/unpin";
     const CONTROL_SCALE_DOWN_URL = "/api/control/scale/down";
     const AUDIT_URL = "/api/audit";
     const SUPPORT_TICKETS_URL = "/api/support/tickets";
@@ -1133,6 +1139,7 @@
             <span class="${scaled ? "replica-hot" : ""}">Replicas: ${escapeHtml(String(current))}</span>
             <span>Ready: ${escapeHtml(String(ready))}</span>
             <span>Bounds: ${escapeHtml(`${min}..${max}`)}</span>
+            <span>${row.slo && row.slo.pinned ? "Pinned" : "Dynamic"}</span>
             <span>SLO: ${escapeHtml(String(Number((row.slo || {}).sloLatency || 0)))} ms</span>
           </div>
         `;
@@ -1674,6 +1681,8 @@
       try {
         const data = await postJson(CONTROL_TRAFFIC_START_URL, { route, path, requests, concurrency, base_url });
         setControlMsg(`Traffic job started: ${data.job} -> ${data.target_url} | approx ${plan.rps.toFixed(0)} rps for ${plan.duration}s`);
+        await refreshAudit();
+        await fetchControlState();
       } catch (err) {
         setControlMsg(`Traffic start failed: ${err.message}`, true);
       }
@@ -1682,7 +1691,11 @@
     document.getElementById("btnTrafficStop").addEventListener("click", async () => {
       try {
         const data = await postJson(CONTROL_TRAFFIC_STOP_URL, { all: true });
-        setControlMsg(`Stopped jobs: ${data.deleted ? data.deleted.length : 0}`);
+        const jobs = data.deleted ? data.deleted.length : 0;
+        const pods = data.deleted_pods ? data.deleted_pods.length : 0;
+        setControlMsg(`Stopped jobs: ${jobs}, deleted pods: ${pods}`);
+        await refreshAudit();
+        await fetchControlState();
       } catch (err) {
         setControlMsg(`Stop traffic failed: ${err.message}`, true);
       }
@@ -1697,7 +1710,8 @@
       try {
         await postJson(CONTROL_SLO_UPDATE_URL, { targetDeployment, priority, sloLatency, minReplicas, maxReplicas });
         setControlMsg(`Updated SLO for ${targetDeployment}`);
-        fetchControlState();
+        await refreshAudit();
+        await fetchControlState();
       } catch (err) {
         setControlMsg(`SLO update failed: ${err.message}`, true);
       }
@@ -1707,7 +1721,9 @@
       const deployment = document.getElementById("sloDeployment").value;
       try {
         const data = await postJson(CONTROL_SCALE_DOWN_URL, { deployment, mode: "min" });
-        setControlMsg(`Scaled ${deployment}: ${data.current} -> ${data.target}`);
+        setControlMsg(`Scaled ${deployment}: ${data.current} -> ${data.target} (observed ${Number(data.observed_replicas || data.target)})`);
+        await refreshAudit();
+        await fetchControlState();
       } catch (err) {
         setControlMsg(`Scale-down failed: ${err.message}`, true);
       }
@@ -1717,10 +1733,37 @@
       const deployment = document.getElementById("sloDeployment").value;
       const replicas = Number(document.getElementById("manualReplicas").value || 0);
       try {
-        await postJson(CONTROL_SCALE_URL, { deployment, replicas });
-        setControlMsg(`Set ${deployment} replicas -> ${replicas}`);
+        const data = await postJson(CONTROL_SCALE_URL, { deployment, replicas });
+        setControlMsg(`Set ${deployment} replicas -> ${replicas} (observed ${Number(data.observed_replicas || replicas)})`);
+        await refreshAudit();
+        await fetchControlState();
       } catch (err) {
         setControlMsg(`Manual scale failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnPinScale").addEventListener("click", async () => {
+      const deployment = document.getElementById("sloDeployment").value;
+      const replicas = Number(document.getElementById("manualReplicas").value || 0);
+      try {
+        const data = await postJson(CONTROL_SCALE_PIN_URL, { deployment, replicas });
+        setControlMsg(`Pinned ${deployment} at ${replicas} replicas (observed ${Number(data.observed_replicas || replicas)})`);
+        await refreshAudit();
+        await fetchControlState();
+      } catch (err) {
+        setControlMsg(`Pin replicas failed: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("btnUnpinScale").addEventListener("click", async () => {
+      const deployment = document.getElementById("sloDeployment").value;
+      try {
+        const data = await postJson(CONTROL_SCALE_UNPIN_URL, { deployment });
+        setControlMsg(`Unpinned ${deployment}; bounds restored to ${Number(data.minReplicas || 0)}..${Number(data.maxReplicas || 0)}`);
+        await refreshAudit();
+        await fetchControlState();
+      } catch (err) {
+        setControlMsg(`Unpin replicas failed: ${err.message}`, true);
       }
     });
 

@@ -36,8 +36,8 @@ Expected baseline outputs:
 - raw traces and replica snapshots
 
 Execution note:
-- use `observation` mode for baseline and F1/F3/F4
-- only rerun `F2_graph_login` after the login route is fixed to return successful responses in the chosen test flow
+- use `observation` mode for baseline and the current metric suite `F1/F2/F3`
+- the login graph case remains available for graph-only validation, but is not part of the current metric-validation suite
 
 ## Test Cases
 
@@ -66,32 +66,7 @@ Pass/fail evidence:
 - client p90 and platform p90 are directionally close for the same window
 - no incorrect downstream edges dominate the route
 
-### F2_graph_login
-
-Purpose:
-- verify the platform observes the login path correctly
-
-Route:
-- `GET /login`
-
-Injected condition:
-- none
-
-Expected graph:
-- `front-end -> user`
-
-Expected bottleneck:
-- none under healthy low load
-
-Expected controller action:
-- hold
-
-Pass/fail evidence:
-- graph shows `front-end -> user`
-- client and platform latency remain directionally aligned
-- controller traces do not target unrelated services
-
-### F3_graph_cart
+### F2_graph_cart
 
 Purpose:
 - verify the platform observes the cart read path correctly
@@ -116,19 +91,19 @@ Pass/fail evidence:
 - carts becomes active for the route window
 - no dependency misclassification is introduced
 
-### F4_graph_post_cart
+### F3_graph_customers
 
 Purpose:
-- verify the platform observes the dependent cart write path correctly
+- verify the platform observes the customers path correctly
 
 Route:
-- `POST /cart`
+- `GET /customers`
 
 Injected condition:
 - none
 
 Expected graph:
-- `front-end -> catalogue -> carts`
+- `front-end -> user`
 
 Expected bottleneck:
 - none under healthy low load
@@ -137,9 +112,9 @@ Expected controller action:
 - hold
 
 Pass/fail evidence:
-- graph shows both `front-end -> catalogue` and `front-end -> carts` or a route-consistent dependency chain
-- catalogue and carts both become active during the isolated route window
-- dependency attribution is directionally correct for the write path
+- graph shows `front-end -> user`
+- user becomes active during the isolated route window
+- controller traces do not target unrelated services
 
 ### F5_local_bottleneck
 

@@ -12,6 +12,11 @@ from kubernetes import client, config
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "5000"))
+SERVICE_LABEL_KEYS = [
+    item.strip()
+    for item in os.getenv("SERVICE_LABEL_KEYS", "app.kubernetes.io/name,app,name").split(",")
+    if item.strip()
+]
 RAW_BUFFER_MAX_EVENTS = int(os.getenv("RAW_BUFFER_MAX_EVENTS", "50000"))
 RUNQ_MIN_US = int(os.getenv("RUNQ_MIN_US", "250"))
 CPU_THROTTLE_POLL_SECONDS = float(os.getenv("CPU_THROTTLE_POLL_SECONDS", "2.0"))
@@ -48,6 +53,18 @@ THROTTLE_STATE = {}
 THROTTLE_LOCK = threading.Lock()
 
 
+def resolve_workload_name(metadata) -> str | None:
+    if not metadata:
+        return None
+    labels = getattr(metadata, "labels", None) or {}
+    for key in SERVICE_LABEL_KEYS:
+        value = str(labels.get(key, "") or "").strip()
+        if value:
+            return value
+    name = str(getattr(metadata, "name", "") or "").strip()
+    return name or None
+
+
 def get_k8s_client():
     try:
         config.load_incluster_config()
@@ -68,11 +85,7 @@ def k8s_metadata_updater():
 
             pods = v1.list_namespaced_pod(TARGET_NAMESPACE)
             for pod in pods.items:
-                if not pod.metadata.labels:
-                    continue
-                app = pod.metadata.labels.get("app") or pod.metadata.labels.get("name")
-                if not app and pod.metadata and pod.metadata.name:
-                    app = pod.metadata.name
+                app = resolve_workload_name(pod.metadata)
                 if not app:
                     continue
                 new_known_svcs.add(app)
@@ -91,14 +104,7 @@ def k8s_metadata_updater():
 
             services = v1.list_namespaced_service(TARGET_NAMESPACE)
             for svc in services.items:
-                app = None
-                if svc.metadata and svc.metadata.labels:
-                    app = svc.metadata.labels.get("app") or svc.metadata.labels.get("name")
-                # Preserve the old agent's helpful fallback: if a Service does not
-                # carry an app/name label, still map its ClusterIP to the Service
-                # name so topology edges do not get dropped as "unmapped".
-                if not app and svc.metadata:
-                    app = svc.metadata.name
+                app = resolve_workload_name(svc.metadata)
                 if svc.spec.cluster_ip and svc.spec.cluster_ip != "None":
                     new_ip_map[svc.spec.cluster_ip] = app
                 if app:

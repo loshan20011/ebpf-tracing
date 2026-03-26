@@ -15,7 +15,7 @@ from kubernetes import client, config
 AGGREGATOR_URL = os.getenv("AGGREGATOR_URL", "http://aggregator:8000")
 AGGREGATOR_TIMEOUT_S = float(os.getenv("AGGREGATOR_TIMEOUT_S", "5"))
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
-ROOT_SERVICE = os.getenv("ROOT_SERVICE", "front-end")
+ROOT_SERVICE = os.getenv("ROOT_SERVICE", "").strip()
 LOOP_SECONDS = float(os.getenv("LOOP_SECONDS", "5"))
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8081"))
 
@@ -209,9 +209,50 @@ def recent_true_target_hold_active(service: str) -> bool:
     return ts > 0.0 and (time.time() - ts) < RECENT_TARGET_HOLD_S
 
 
-def root_service_protection_needed() -> bool:
+def discover_root_service(slo_cfgs: Dict[str, Dict[str, object]], topology: Optional[dict] = None) -> str:
+    configured = str(ROOT_SERVICE or "").strip()
+    if configured:
+        if configured in slo_cfgs:
+            return configured
+        raise RuntimeError(f"Configured ROOT_SERVICE '{configured}' is not present in ServiceSLO configs")
+
+    primary_services = [svc for svc, cfg in slo_cfgs.items() if str(cfg.get("priority", "secondary")) == "primary"]
+    if len(primary_services) == 1:
+        return primary_services[0]
+    if len(primary_services) > 1:
+        raise RuntimeError(
+            "Multiple primary ServiceSLO entries found; set ROOT_SERVICE explicitly or keep only one primary service"
+        )
+
+    topo = topology if isinstance(topology, dict) else {}
+    monitored = set(slo_cfgs.keys())
+    if topo and monitored:
+        child_set = set()
+        for parent, children in topo.items():
+            if parent not in monitored:
+                continue
+            for child in children or []:
+                if child in monitored:
+                    child_set.add(child)
+        root_candidates = sorted(monitored - child_set)
+        if len(root_candidates) == 1:
+            return root_candidates[0]
+        if len(root_candidates) > 1:
+            raise RuntimeError(
+                "Unable to infer a single root service from topology; set ROOT_SERVICE explicitly or mark one ServiceSLO as primary"
+            )
+
+    if len(slo_cfgs) == 1:
+        return next(iter(slo_cfgs))
+
+    raise RuntimeError(
+        "Unable to determine root service dynamically; set ROOT_SERVICE explicitly or mark one ServiceSLO as primary"
+    )
+
+
+def root_service_protection_needed(root_service: str) -> bool:
     try:
-        desired, ready = read_replicas(ROOT_SERVICE)
+        desired, ready = read_replicas(root_service)
     except Exception:
         return False
     current = max(desired, ready, 0)
@@ -1308,6 +1349,7 @@ def propose_upscale_action(
     topology: dict,
     topology_meta: dict,
     slo_cfgs: dict,
+    root_service: str,
 ) -> Tuple[Optional[dict], dict]:
     service = trigger["service"]
     resolution = resolve_root_cause(service, metrics, topology, topology_meta, set(slo_cfgs.keys()), slo_cfgs)
@@ -1348,9 +1390,9 @@ def propose_upscale_action(
         return None, resolution
 
     protecting_root_service = bool(
-        service == ROOT_SERVICE
-        and target != ROOT_SERVICE
-        and root_service_protection_needed()
+        service == root_service
+        and target != root_service
+        and root_service_protection_needed(root_service)
     )
     if protecting_root_service and not bool(target_signal.get("direct_signal", False)):
         resolution["blocked_by"] = "root_service_protection_first"
@@ -1512,13 +1554,13 @@ def propose_upscale_action(
     return action, resolution
 
 
-def pick_best_action(actions: List[dict]) -> Optional[dict]:
+def pick_best_action(actions: List[dict], root_service: str) -> Optional[dict]:
     if not actions:
         return None
 
     def action_key(action: dict):
         return (
-            0 if (str(action.get("target_service", "")) == ROOT_SERVICE and bool(action.get("root_service_protection_needed", False))) else 1,
+            0 if (str(action.get("target_service", "")) == root_service and bool(action.get("root_service_protection_needed", False))) else 1,
             0 if bool(action.get("direct_target_signal", False)) else 1,
             0 if str(action.get("path_reason", "")) == "downstream_delay" and bool(action.get("direct_target_signal", False)) else 1,
             len(list(action.get("path", []))),
@@ -1755,7 +1797,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             "last_error": READY_STATE.get("last_error", ""),
             "last_loop_ts": READY_STATE.get("last_loop_ts", 0.0),
             "target_namespace": TARGET_NAMESPACE,
-            "root_service": ROOT_SERVICE,
+            "root_service": str(ROOT_SERVICE or ""),
             "loop_seconds": LOOP_SECONDS,
         }
         if path == "/healthz":
@@ -1789,9 +1831,9 @@ def start_health_server():
 
 def main():
     logger.info(
-        "Runtime config: target_ns=%s root=%s loop=%.1fs active_rps=%.2f runq_fixed=%.2fms",
+        "Runtime config: target_ns=%s configured_root=%s loop=%.1fs active_rps=%.2f runq_fixed=%.2fms",
         TARGET_NAMESPACE,
-        ROOT_SERVICE,
+        ROOT_SERVICE or "<auto>",
         LOOP_SECONDS,
         ACTIVE_RPS_THRESHOLD,
         RUNQ_FIXED_THRESHOLD_MS,
@@ -1806,21 +1848,22 @@ def main():
             metrics = graph.get("metrics", {}) if isinstance(graph, dict) else {}
             topology = graph.get("topology", {}) if isinstance(graph, dict) else {}
             topology_meta = graph.get("topology_meta", {}) if isinstance(graph, dict) else {}
+            root_service = discover_root_service(slo_cfgs, topology)
 
             upscale_actions: List[dict] = []
             downscale_actions: List[dict] = []
             snapshots: Dict[str, dict] = {}
 
             ordered_services = sorted(slo_cfgs.keys())
-            if ROOT_SERVICE in ordered_services:
-                ordered_services.remove(ROOT_SERVICE)
-                ordered_services.insert(0, ROOT_SERVICE)
+            if root_service in ordered_services:
+                ordered_services.remove(root_service)
+                ordered_services.insert(0, root_service)
 
             for service in ordered_services:
                 cfg = slo_cfgs[service]
                 snapshot = attach_pressure_windows(pressure_snapshot(service, cfg, metrics))
                 snapshots[service] = snapshot
-                action, resolution = propose_upscale_action(snapshot, metrics, topology, topology_meta, slo_cfgs)
+                action, resolution = propose_upscale_action(snapshot, metrics, topology, topology_meta, slo_cfgs, root_service)
 
                 if action:
                     upscale_actions.append(action)
@@ -1895,7 +1938,7 @@ def main():
                     downscale_actions.append(downscale)
                 LAST_SHORT_RPS[service] = snapshot["rps"]
 
-            chosen = pick_best_action(upscale_actions)
+            chosen = pick_best_action(upscale_actions, root_service)
 
             if chosen:
                 patch_replicas(chosen["target_service"], chosen["target_replicas"])

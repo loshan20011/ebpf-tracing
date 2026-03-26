@@ -552,6 +552,15 @@ from pathlib import Path
 root = Path(sys.argv[1])
 arms = [("noautoscale", "No Autoscaler"), ("hpa50", "HPA-50"), ("hpa70", "HPA-70"), ("thrivescale", "ThriveScale")]
 rows = []
+
+def fmt_value(value):
+    return "-" if value is None else str(value)
+
+def fmt_percent_ratio(value):
+    if value is None:
+        return "-"
+    return f"{float(value) * 100:.2f}%"
+
 for folder, label in arms:
     summary_path = root / folder / "summary.json"
     if not summary_path.exists():
@@ -589,9 +598,9 @@ lines = [
 ]
 for row in rows:
     lines.append(
-        f"| {row['Arm']} | {row['SLO violation time']} | {row['SLO violation rate']} | "
-        f"{row['Time to first action']} | {row['Recovery time']} | {row['Peak replicas']} | "
-        f"{row['Average replicas']} | {row['Requested CPU core-minutes']} | {row['Replica-seconds']} | {row['Error rate']} |"
+        f"| {row['Arm']} | {fmt_value(row['SLO violation time'])} | {fmt_percent_ratio(row['SLO violation rate'])} | "
+        f"{fmt_value(row['Time to first action'])} | {fmt_value(row['Recovery time'])} | {fmt_value(row['Peak replicas'])} | "
+        f"{fmt_value(row['Average replicas'])} | {fmt_value(row['Requested CPU core-minutes'])} | {fmt_value(row['Replica-seconds'])} | {fmt_value(row['Error rate'])} |"
     )
 
 (root / "final_comparison.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

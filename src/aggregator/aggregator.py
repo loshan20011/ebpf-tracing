@@ -41,6 +41,11 @@ app = Flask(__name__)
 CORS(app)
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
+SERVICE_LABEL_KEYS = [
+    item.strip()
+    for item in os.getenv("SERVICE_LABEL_KEYS", "app.kubernetes.io/name,app,name").split(",")
+    if item.strip()
+]
 SCRAPE_INTERVAL_SECONDS = float(os.getenv("SCRAPE_INTERVAL_SECONDS", "2"))
 WINDOW_SHORT_SECONDS = float(os.getenv("WINDOW_SHORT_SECONDS", os.getenv("WINDOW_SECONDS", "15")))
 WINDOW_LONG_SECONDS = float(os.getenv("WINDOW_LONG_SECONDS", "180"))
@@ -66,7 +71,7 @@ SUPPORT_TICKET_SEQ_KEY = os.getenv("SUPPORT_TICKET_SEQ_KEY", "support:ticket:seq
 SUPPORT_TICKET_RETURN_LIMIT = int(os.getenv("SUPPORT_TICKET_RETURN_LIMIT", "120"))
 CONTROL_API_TOKEN = os.getenv("CONTROL_API_TOKEN", "").strip()
 TRAFFIC_JOB_IMAGE = os.getenv("TRAFFIC_JOB_IMAGE", "curlimages/curl:8.12.1")
-TRAFFIC_TARGET_BASE_URL = os.getenv("TRAFFIC_TARGET_BASE_URL", "http://gateway")
+TRAFFIC_TARGET_BASE_URL = os.getenv("TRAFFIC_TARGET_BASE_URL", "").strip()
 TRAFFIC_JOB_TTL_SECONDS = int(os.getenv("TRAFFIC_JOB_TTL_SECONDS", "180"))
 RUNQ_ZSCORE_K = float(os.getenv("RUNQ_ZSCORE_K", "3.0"))
 RUNQ_CONF_MIN_SAMPLES = int(os.getenv("RUNQ_CONF_MIN_SAMPLES", "20"))
@@ -78,6 +83,9 @@ TOPO_EDGE_TTL_SECONDS = int(os.getenv("TOPO_EDGE_TTL_SECONDS", "120"))
 TOPO_MAX_CHILDREN = int(os.getenv("TOPO_MAX_CHILDREN", "12"))
 RUNQ_LEARNING_ENABLED_KEY = os.getenv("RUNQ_LEARNING_ENABLED_KEY", "runq:learning_enabled")
 TRUTH_STALE_AFTER_SECONDS = float(os.getenv("TRUTH_STALE_AFTER_SECONDS", str(METRIC_STALE_AFTER_SECONDS)))
+PIN_ENABLED_ANNOTATION = "dashboard.thrivescale.io/pinned"
+PIN_ORIGINAL_MIN_ANNOTATION = "dashboard.thrivescale.io/original-min-replicas"
+PIN_ORIGINAL_MAX_ANNOTATION = "dashboard.thrivescale.io/original-max-replicas"
 
 
 def resolve_redis_endpoint():
@@ -130,6 +138,17 @@ LAST_MAP_REFRESH = 0.0
 SLO_MAP = {}
 SLO_CONFIG_MAP = {}
 LAST_SLO_REFRESH = 0.0
+
+
+def resolve_workload_name(metadata):
+    if not metadata:
+        return ""
+    labels = getattr(metadata, "labels", None) or {}
+    for key in SERVICE_LABEL_KEYS:
+        value = str(labels.get(key, "") or "").strip()
+        if value:
+            return value
+    return str(getattr(metadata, "name", "") or "").strip()
 
 
 def get_redis():
@@ -270,6 +289,35 @@ apps_api = client.AppsV1Api()
 batch_api = client.BatchV1Api()
 
 
+def read_scale_replicas(deployment_name):
+    scale_obj = apps_api.read_namespaced_deployment_scale(deployment_name, TARGET_NAMESPACE)
+    return int(scale_obj.spec.replicas or 0)
+
+
+def wait_for_scale_target(deployment_name, expected_replicas, timeout_seconds=20):
+    deadline = time.time() + max(1, int(timeout_seconds))
+    last_seen = -1
+    while time.time() < deadline:
+        try:
+            last_seen = read_scale_replicas(deployment_name)
+            if last_seen == expected_replicas:
+                return last_seen
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return last_seen
+
+
+def resolve_slo_entry(target):
+    refresh_slo_map()
+    with K8S_MAP_LOCK:
+        existing = dict(SLO_CONFIG_MAP.get(target, {}))
+    slo_name = existing.get("name")
+    if not slo_name:
+        return None, None
+    return existing, slo_name
+
+
 def refresh_ip_map():
     global IP_TO_SVC, LAST_MAP_REFRESH
     now = time.time()
@@ -287,9 +335,7 @@ def refresh_ip_map():
             for pod in pods.items:
                 if not pod.status.pod_ip:
                     continue
-                app_label = (pod.metadata.labels.get("app") or pod.metadata.labels.get("name")) if pod.metadata and pod.metadata.labels else None
-                if not app_label and pod.metadata and pod.metadata.name:
-                    app_label = pod.metadata.name
+                app_label = resolve_workload_name(pod.metadata)
                 if app_label:
                     new_map[pod.status.pod_ip] = app_label
 
@@ -297,7 +343,7 @@ def refresh_ip_map():
             for svc in services.items:
                 if not svc.spec.cluster_ip or svc.spec.cluster_ip == "None":
                     continue
-                app_label = (svc.metadata.labels.get("app") or svc.metadata.labels.get("name")) if svc.metadata and svc.metadata.labels else svc.metadata.name
+                app_label = resolve_workload_name(svc.metadata)
                 if app_label:
                     new_map[svc.spec.cluster_ip] = app_label
 
@@ -325,6 +371,7 @@ def refresh_slo_map():
         for item in raw.get("items", []):
             metadata = item.get("metadata", {})
             spec = item.get("spec", {})
+            annotations = metadata.get("annotations", {}) if isinstance(metadata, dict) else {}
             target = spec.get("targetDeployment")
             if not target:
                 continue
@@ -338,6 +385,7 @@ def refresh_slo_map():
                 "minReplicas": int(spec.get("minReplicas", 1)),
                 "maxReplicas": int(spec.get("maxReplicas", 10)),
                 "priority": priority,
+                "pinned": str(annotations.get(PIN_ENABLED_ANNOTATION, "")).strip().lower() == "true",
             }
         with K8S_MAP_LOCK:
             SLO_MAP = new_map
@@ -375,7 +423,6 @@ INFRA_EXACT = {
     "kubernetes",
     "redis",
     "redis-cart",
-    "mycurlpod",
 }
 
 INFRA_PREFIXES = (
@@ -865,9 +912,12 @@ def start_traffic():
 
     base = str(payload.get("base_url") or TRAFFIC_TARGET_BASE_URL).rstrip("/")
     target_url = payload.get("url") or join_target_url(base, route_path)
+    if not str(target_url or "").strip():
+        return jsonify({"error": "base_url or url is required when no benchmark traffic target is configured"}), 400
     safe_route = sanitize_name_part(route_name or route_path.strip("/").replace("/", "-") or "root")
     job_name = f"traffic-{safe_route}-{current_ts_name()}".replace("_", "-")
     shell_url = str(target_url).replace("'", "%27")
+    estimated_runtime_seconds = max(30, int((req_n / max(conc, 1)) * 2) + 30)
     # Parallel curl burst with bounded in-flight workers approximates hey -n/-c semantics.
     script = (
         f"n={req_n}; c={conc}; i=0; "
@@ -890,6 +940,7 @@ def start_traffic():
         spec=client.V1JobSpec(
             ttl_seconds_after_finished=TRAFFIC_JOB_TTL_SECONDS,
             backoff_limit=0,
+            active_deadline_seconds=estimated_runtime_seconds,
             template=client.V1PodTemplateSpec(
                 metadata=client.V1ObjectMeta(
                     labels={"app": "traffic-job", "managed-by": "dashboard-control", "traffic-route": safe_route}
@@ -954,20 +1005,33 @@ def stop_traffic():
     errors = []
     try:
         jobs = batch_api.list_namespaced_job(namespace=TARGET_NAMESPACE, label_selector=selector).items
+        pods = v1.list_namespaced_pod(namespace=TARGET_NAMESPACE, label_selector=selector).items
         for job in jobs:
             name = job.metadata.name
             try:
                 batch_api.delete_namespaced_job(
                     name=name,
                     namespace=TARGET_NAMESPACE,
-                    propagation_policy="Background",
+                    propagation_policy="Foreground",
                     grace_period_seconds=0,
                 )
                 deleted.append(name)
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
-        append_audit_event("traffic_job", "stopped", {"route": route or "*", "deleted": deleted, "errors": errors})
-        return jsonify({"ok": True, "deleted": deleted, "errors": errors})
+        deleted_pods = []
+        for pod in pods:
+            name = pod.metadata.name
+            try:
+                v1.delete_namespaced_pod(name=name, namespace=TARGET_NAMESPACE, grace_period_seconds=0)
+                deleted_pods.append(name)
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
+        append_audit_event(
+            "traffic_job",
+            "stopped",
+            {"route": route or "*", "deleted": deleted, "deleted_pods": deleted_pods, "errors": errors},
+        )
+        return jsonify({"ok": True, "deleted": deleted, "deleted_pods": deleted_pods, "errors": errors})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -988,13 +1052,12 @@ def update_slo():
         return jsonify({"error": "sloLatency must be numeric"}), 400
     min_replicas = parse_int(payload, "minReplicas", 1, 1, 200)
     max_replicas = parse_int(payload, "maxReplicas", max(min_replicas, 5), min_replicas, 500)
-    refresh_slo_map()
-    with K8S_MAP_LOCK:
-        existing = SLO_CONFIG_MAP.get(target, {})
+    existing, slo_name = resolve_slo_entry(target)
+    existing = existing or {}
     priority = str(payload.get("priority") or existing.get("priority") or "secondary").strip().lower()
     if priority not in {"primary", "secondary"}:
         return jsonify({"error": "priority must be primary or secondary"}), 400
-    slo_name = payload.get("name") or existing.get("name")
+    slo_name = payload.get("name") or slo_name
     if not slo_name:
         return jsonify({"error": f"No ServiceSLO found for targetDeployment={target}"}), 404
 
@@ -1059,8 +1122,113 @@ def manual_scale():
             namespace=TARGET_NAMESPACE,
             body=patch,
         )
+        observed = wait_for_scale_target(deploy, replicas)
         append_audit_event("manual_scale", "scaled", {"deployment": deploy, "replicas": replicas})
-        return jsonify({"ok": True, "deployment": deploy, "replicas": replicas})
+        return jsonify({"ok": True, "deployment": deploy, "replicas": replicas, "observed_replicas": observed})
+    except ApiException as exc:
+        return jsonify({"ok": False, "error": exc.reason, "body": exc.body}), int(exc.status or 500)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/control/scale/pin", methods=["POST"])
+def pin_scale():
+    auth_error = require_control_auth()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    deploy = (payload.get("deployment") or payload.get("service") or "").strip()
+    if not deploy:
+        return jsonify({"error": "deployment is required"}), 400
+    replicas = parse_int(payload, "replicas", read_scale_replicas(deploy), 0, 500)
+
+    existing, slo_name = resolve_slo_entry(deploy)
+    if not slo_name:
+        return jsonify({"error": f"No ServiceSLO found for targetDeployment={deploy}"}), 404
+
+    try:
+        slo_obj = custom_api.get_namespaced_custom_object(
+            group="autoscaling.fyp.io",
+            version="v1alpha1",
+            namespace=TARGET_NAMESPACE,
+            plural="serviceslos",
+            name=slo_name,
+        )
+        metadata = slo_obj.get("metadata", {}) if isinstance(slo_obj, dict) else {}
+        annotations = dict(metadata.get("annotations", {}) or {})
+        if str(annotations.get(PIN_ENABLED_ANNOTATION, "")).strip().lower() != "true":
+            annotations[PIN_ORIGINAL_MIN_ANNOTATION] = str(int(existing.get("minReplicas", 1)))
+            annotations[PIN_ORIGINAL_MAX_ANNOTATION] = str(int(existing.get("maxReplicas", max(1, replicas))))
+        annotations[PIN_ENABLED_ANNOTATION] = "true"
+
+        custom_api.patch_namespaced_custom_object(
+            group="autoscaling.fyp.io",
+            version="v1alpha1",
+            namespace=TARGET_NAMESPACE,
+            plural="serviceslos",
+            name=slo_name,
+            body={
+                "metadata": {"annotations": annotations},
+                "spec": {"minReplicas": replicas, "maxReplicas": replicas},
+            },
+        )
+        apps_api.patch_namespaced_deployment_scale(
+            name=deploy,
+            namespace=TARGET_NAMESPACE,
+            body={"spec": {"replicas": replicas}},
+        )
+        observed = wait_for_scale_target(deploy, replicas)
+        refresh_slo_map()
+        append_audit_event("manual_scale_pin", "pinned", {"deployment": deploy, "replicas": replicas})
+        return jsonify({"ok": True, "deployment": deploy, "replicas": replicas, "observed_replicas": observed, "pinned": True})
+    except ApiException as exc:
+        return jsonify({"ok": False, "error": exc.reason, "body": exc.body}), int(exc.status or 500)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/control/scale/unpin", methods=["POST"])
+def unpin_scale():
+    auth_error = require_control_auth()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    deploy = (payload.get("deployment") or payload.get("service") or "").strip()
+    if not deploy:
+        return jsonify({"error": "deployment is required"}), 400
+
+    existing, slo_name = resolve_slo_entry(deploy)
+    if not slo_name:
+        return jsonify({"error": f"No ServiceSLO found for targetDeployment={deploy}"}), 404
+
+    try:
+        slo_obj = custom_api.get_namespaced_custom_object(
+            group="autoscaling.fyp.io",
+            version="v1alpha1",
+            namespace=TARGET_NAMESPACE,
+            plural="serviceslos",
+            name=slo_name,
+        )
+        metadata = slo_obj.get("metadata", {}) if isinstance(slo_obj, dict) else {}
+        annotations = dict(metadata.get("annotations", {}) or {})
+        original_min = parse_int({PIN_ORIGINAL_MIN_ANNOTATION: annotations.get(PIN_ORIGINAL_MIN_ANNOTATION)}, PIN_ORIGINAL_MIN_ANNOTATION, 1, 1, 200)
+        original_max = parse_int({PIN_ORIGINAL_MAX_ANNOTATION: annotations.get(PIN_ORIGINAL_MAX_ANNOTATION)}, PIN_ORIGINAL_MAX_ANNOTATION, max(original_min, int(existing.get("maxReplicas", 5))), original_min, 500)
+        annotations[PIN_ENABLED_ANNOTATION] = "false"
+
+        custom_api.patch_namespaced_custom_object(
+            group="autoscaling.fyp.io",
+            version="v1alpha1",
+            namespace=TARGET_NAMESPACE,
+            plural="serviceslos",
+            name=slo_name,
+            body={
+                "metadata": {"annotations": annotations},
+                "spec": {"minReplicas": original_min, "maxReplicas": original_max},
+            },
+        )
+        refresh_slo_map()
+        append_audit_event("manual_scale_pin", "unpinned", {"deployment": deploy, "minReplicas": original_min, "maxReplicas": original_max})
+        return jsonify({"ok": True, "deployment": deploy, "minReplicas": original_min, "maxReplicas": original_max, "pinned": False})
     except ApiException as exc:
         return jsonify({"ok": False, "error": exc.reason, "body": exc.body}), int(exc.status or 500)
     except Exception as exc:
@@ -1082,8 +1250,7 @@ def manual_scale_down():
     with K8S_MAP_LOCK:
         slo_cfg = SLO_CONFIG_MAP.get(deploy, {})
     min_replicas = int(slo_cfg.get("minReplicas", 1))
-    scale_obj = apps_api.read_namespaced_deployment_scale(deploy, TARGET_NAMESPACE)
-    current = int(scale_obj.spec.replicas or 0)
+    current = read_scale_replicas(deploy)
 
     if mode == "min":
         target = min_replicas
@@ -1095,8 +1262,9 @@ def manual_scale_down():
         namespace=TARGET_NAMESPACE,
         body={"spec": {"replicas": target}},
     )
+    observed = wait_for_scale_target(deploy, target)
     append_audit_event("manual_scale_down", "scaled", {"deployment": deploy, "current": current, "target": target, "mode": mode})
-    return jsonify({"ok": True, "deployment": deploy, "current": current, "target": target, "mode": mode})
+    return jsonify({"ok": True, "deployment": deploy, "current": current, "target": target, "observed_replicas": observed, "mode": mode})
 
 
 @app.route("/api/truth/ingest", methods=["POST"])

@@ -15,7 +15,7 @@ It checks whether the framework can classify the practical top-level bottleneck 
 - autoscaling disabled
 - fixed replicas: `1`
 - one route only per case
-- short steady traffic per case
+- steady traffic per case with restart-after-reset enabled for clean edge rediscovery
 
 ## Cases
 | Case | Route | Monitored Services | Expected Service | Expected Type |
@@ -35,3 +35,7 @@ Do not use the older synthetic bottleneck-reason cases for this final Sock Shop 
 ```bash
 bash src/scripts/bottleneck_identification_sockshop/run_bottleneck_identification_sockshop.sh all observation
 ```
+
+Reporting rule:
+- the final output should show only one detected bottleneck service and one final detected type per case
+- intermediate leaf/path/internal scope labels are not part of the final Sock Shop report

@@ -4,15 +4,20 @@ from datetime import datetime, timezone
 
 
 TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "default")
-TRAFFIC_TARGET_BASE_URL = os.getenv("TRAFFIC_TARGET_BASE_URL", "http://gateway")
-SOCKSHOP_NAMESPACES = {
-    item.strip()
-    for item in os.getenv("SOCKSHOP_NAMESPACES", "sock-shop").split(",")
-    if item.strip()
-}
-SOCKSHOP_ENTRY_SERVICE = os.getenv("SOCKSHOP_ENTRY_SERVICE", "front-end").strip() or "front-end"
-SYNTHETIC_ENTRY_SERVICE = os.getenv("SYNTHETIC_ENTRY_SERVICE", "gateway").strip() or "gateway"
-SYNTHETIC_SERVICE_PREFIX = os.getenv("SYNTHETIC_SERVICE_PREFIX", "svc-").strip() or "svc-"
+TRAFFIC_TARGET_BASE_URL = os.getenv("TRAFFIC_TARGET_BASE_URL", "").strip()
+BENCHMARK_PROFILE = os.getenv("BENCHMARK_PROFILE", "").strip().lower()
+SOCKSHOP_ENTRY_SERVICE = os.getenv("SOCKSHOP_ENTRY_SERVICE", "").strip()
+SYNTHETIC_ENTRY_SERVICE = os.getenv("SYNTHETIC_ENTRY_SERVICE", "").strip()
+SYNTHETIC_SERVICE_PREFIX = os.getenv("SYNTHETIC_SERVICE_PREFIX", "").strip()
+
+
+def traffic_route(name, label, path, target_deployment=""):
+    return {
+        "name": str(name),
+        "label": str(label),
+        "path": str(path),
+        "targetDeployment": str(target_deployment or ""),
+    }
 
 
 def parse_routes_json(raw, default_routes):
@@ -54,7 +59,7 @@ def route_to_path(route):
     if not route:
         return ""
     path = str(route).strip().lower()
-    if path.startswith(SYNTHETIC_SERVICE_PREFIX):
+    if SYNTHETIC_SERVICE_PREFIX and path.startswith(SYNTHETIC_SERVICE_PREFIX):
         path = path[len(SYNTHETIC_SERVICE_PREFIX) :]
     if path.startswith("/"):
         path = path[1:]
@@ -68,7 +73,7 @@ def derive_routes_from_slos(slo_cfg):
             continue
         norm = str(name).strip()
         routes.add(norm)
-        if norm.startswith(SYNTHETIC_SERVICE_PREFIX) and len(norm) > len(SYNTHETIC_SERVICE_PREFIX):
+        if SYNTHETIC_SERVICE_PREFIX and norm.startswith(SYNTHETIC_SERVICE_PREFIX) and len(norm) > len(SYNTHETIC_SERVICE_PREFIX):
             routes.add(norm[len(SYNTHETIC_SERVICE_PREFIX) :])
     return sorted(routes)
 
@@ -85,20 +90,11 @@ def in_cluster_service_url(service_name, namespace):
     return f"http://{svc}.{ns}"
 
 
-def traffic_route(name, label, path, target_deployment=""):
-    return {
-        "name": str(name),
-        "label": str(label),
-        "path": str(path),
-        "targetDeployment": str(target_deployment or ""),
-    }
-
-
 def detect_benchmark_profile(namespace, deployment_rows, slo_cfg):
-    names = {str(row.get("name", "")).strip() for row in deployment_rows if row.get("name")}
+    _unused = deployment_rows
     namespace = str(namespace or TARGET_NAMESPACE).strip() or TARGET_NAMESPACE
 
-    if namespace in SOCKSHOP_NAMESPACES or SOCKSHOP_ENTRY_SERVICE in names:
+    if BENCHMARK_PROFILE == "sock-shop":
         return {
             "id": "sock-shop",
             "name": "Sock Shop",
@@ -108,7 +104,7 @@ def detect_benchmark_profile(namespace, deployment_rows, slo_cfg):
             "note": "Traffic jobs should target the Sock Shop front-end service inside the cluster.",
         }
 
-    if SYNTHETIC_ENTRY_SERVICE in names or any(name.startswith(SYNTHETIC_SERVICE_PREFIX) for name in names):
+    if BENCHMARK_PROFILE in {"synthetic", "thrive-demo"}:
         routes = []
         for name in sorted(slo_cfg.keys()):
             path_name = route_to_path(name)
@@ -141,7 +137,7 @@ def detect_benchmark_profile(namespace, deployment_rows, slo_cfg):
 def join_target_url(base_url, route_path):
     base = str(base_url or TRAFFIC_TARGET_BASE_URL).strip()
     if not base:
-        base = TRAFFIC_TARGET_BASE_URL
+        return str(route_path or "").strip()
     base = base.rstrip("/")
     path = str(route_path or "").strip()
     if not path or path == "/":

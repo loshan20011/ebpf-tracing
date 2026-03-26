@@ -167,6 +167,8 @@ def expected_edges_for_case(case_name: str) -> list[str]:
         "baseline_low_steady": ["front-end->catalogue", "front-end->carts", "front-end->user"],
         "F1_graph_catalogue": ["front-end->catalogue"],
         "F2_graph_login": ["front-end->user"],
+        "F2_graph_cart": ["front-end->carts"],
+        "F3_graph_customers": ["front-end->user"],
         "F3_graph_cart": ["front-end->carts"],
         "F4_graph_customers": ["front-end->user"],
     }

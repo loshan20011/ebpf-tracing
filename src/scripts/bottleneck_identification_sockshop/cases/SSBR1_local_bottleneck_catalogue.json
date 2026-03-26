@@ -7,9 +7,9 @@
   },
   "base_url": "http://127.0.0.1:30001",
   "case_name": "SSBR1_local_bottleneck_catalogue",
-  "collector_duration_seconds": 60,
+  "collector_duration_seconds": 90,
   "controller_deployment": "custom-autoscaler",
-  "duration_seconds": 60,
+  "duration_seconds": 90,
   "expected": {
     "bottleneck_service": "catalogue",
     "graph_edges": [
@@ -33,7 +33,7 @@
   "phase_name": "bottleneck_reason_sockshop",
   "phases": [
     {
-      "duration_seconds": 60,
+      "duration_seconds": 90,
       "name": "steady",
       "route_mix": {
         "catalogue_get": 1.0
@@ -42,7 +42,7 @@
     }
   ],
   "random_seed": 7,
-  "restart_after_reset": false,
+  "restart_after_reset": true,
   "routes": {
     "catalogue_get": {
       "method": "GET",
@@ -65,6 +65,6 @@
       "targetDeployment": "catalogue"
     }
   },
-  "stabilization_seconds": 15,
+  "stabilization_seconds": 35,
   "system_namespace": "thrive-scale"
 }

@@ -1,5 +1,5 @@
 {
-  "case_name": "F3_graph_cart",
+  "case_name": "F2_graph_cart",
   "base_url": "http://127.0.0.1:30001",
   "random_seed": 17,
   "initial_replicas": {

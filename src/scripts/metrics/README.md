@@ -45,7 +45,10 @@ Recommended metric-validation paths:
 
 - `baseline_low_steady`
 - `F1_graph_catalogue`
-- `F3_graph_cart`
-- `F4_graph_customers`
+- `F2_graph_cart`
+- `F3_graph_customers`
 
-The login graph case is still useful for dependency-path observation, but it is not part of the recommended metric-accuracy suite because the client login flow is still not succeeding.
+Note:
+
+- the login route remains available under `run_graph_checks.sh login`
+- the metric-check suite intentionally skips the login case for now because that route has been unstable in the low-rate validation flow

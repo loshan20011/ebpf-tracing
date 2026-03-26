@@ -1,5 +1,5 @@
 {
-  "case_name": "F4_graph_customers",
+  "case_name": "F3_graph_customers",
   "base_url": "http://127.0.0.1:30001",
   "random_seed": 19,
   "initial_replicas": {

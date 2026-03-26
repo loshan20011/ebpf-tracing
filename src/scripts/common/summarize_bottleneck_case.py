@@ -531,19 +531,11 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         det = detect_bottleneck(row_metrics, row_topology if isinstance(row_topology, dict) else {}, root_service, services)
         row_path_reason = normalize_reason_class(str(det.get("path_reason_class") or ""))
         row_leaf_reason = normalize_reason_class(str(det.get("leaf_reason_class") or ""))
-        if expected_reason == "downstream_delay":
-            row_evaluated_reason = row_path_reason or normalize_reason_class(str(det["reason_class"]))
-            row_reason_scope = "path"
-        else:
-            row_evaluated_reason = row_leaf_reason or normalize_reason_class(str(det["reason_class"]))
-            row_reason_scope = "leaf"
+        row_evaluated_reason = top_level_reason_class(det)
         snapshot_detections.append(
             {
                 "service": str(det["bottleneck_service"]),
                 "evaluated_reason": row_evaluated_reason,
-                "path_reason": row_path_reason,
-                "leaf_reason": row_leaf_reason,
-                "reason_scope_used": row_reason_scope,
             }
         )
         if expected_edges_present(row, expected_edges):
@@ -565,27 +557,13 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         max_service_consecutive = max(max_service_consecutive, current_service_consecutive)
         max_reason_consecutive = max(max_reason_consecutive, current_reason_consecutive)
 
-    path_reason = normalize_reason_class(str(detection.get("path_reason_class") or ""))
-    leaf_reason = normalize_reason_class(str(detection.get("leaf_reason_class") or ""))
     detected_top_level_reason = top_level_reason_class(detection)
-    if expected_reason in TOP_LEVEL_REASON_CLASSES:
-        evaluated_reason = detected_top_level_reason
-        reason_scope_used = "top_level"
-    elif expected_reason == "downstream_delay":
-        evaluated_reason = path_reason or normalize_reason_class(str(detection["reason_class"]))
-        reason_scope_used = "path"
-    else:
-        evaluated_reason = leaf_reason or normalize_reason_class(str(detection["reason_class"]))
-        reason_scope_used = "leaf"
+    evaluated_reason = detected_top_level_reason
 
     service_stability_pass = max_service_consecutive >= MIN_CONSECUTIVE_MATCH_LOOPS
     reason_stability_pass = max_reason_consecutive >= MIN_CONSECUTIVE_MATCH_LOOPS
     service_pass = str(detection["bottleneck_service"]) == expected_service
     reason_pass = expected_reason == evaluated_reason
-    expected_path_reason = normalize_reason_class(str(expected.get("path_reason_class", "") or ""))
-    expected_leaf_reason = normalize_reason_class(str(expected.get("leaf_reason_class", "") or ""))
-    path_reason_pass = None if not expected_path_reason else (path_reason == expected_path_reason)
-    leaf_reason_pass = None if not expected_leaf_reason else (leaf_reason == expected_leaf_reason)
     graph_pass = bool(eval_graph_rows) and graph_hits >= max(1, (len(eval_graph_rows) + 1) // 2)
 
     return {
@@ -609,33 +587,21 @@ def summarize(case_dir: Path, phase_name: str) -> dict:
         "slo_setup": collector_session.get("slo_setup", {}),
         "platform": service_metrics,
         "detection": {
+            "trigger_service": root_service,
             "detected_bottleneck_service": detection["bottleneck_service"],
-            "detected_reason_class": normalize_reason_class(str(detection["reason_class"])),
-            "detected_top_level_reason_class": detected_top_level_reason,
-            "detected_path_reason_class": path_reason,
-            "detected_leaf_reason_class": leaf_reason,
-            "evaluated_reason_class": evaluated_reason,
-            "reason_scope_used": reason_scope_used,
-            "reason_detail": detection["reason_detail"],
+            "detected_reason_class": detected_top_level_reason,
             "path": detection["path"],
         },
         "expected": {
             "bottleneck_service": expected.get("bottleneck_service", ""),
             "reason_class": expected_reason,
-            "path_reason_class": expected_path_reason,
-            "leaf_reason_class": expected_leaf_reason,
         },
         "pass_fail": {
             "service_pass": service_pass,
-            "service_identification_pass": service_pass,
-            "service_stability_pass": service_stability_pass,
             "reason_pass": reason_pass,
-            "reason_stability_pass": reason_stability_pass,
-            "path_reason_pass": path_reason_pass,
-            "leaf_reason_pass": leaf_reason_pass,
-            "max_service_consecutive_loops": max_service_consecutive,
-            "max_reason_consecutive_loops": max_reason_consecutive,
-            "overall_pass": service_pass and reason_pass and graph_pass,
+            "graph_pass": graph_pass,
+            "stability_pass": service_stability_pass and reason_stability_pass,
+            "overall_pass": service_pass and reason_pass and graph_pass and service_stability_pass and reason_stability_pass,
         },
     }
 

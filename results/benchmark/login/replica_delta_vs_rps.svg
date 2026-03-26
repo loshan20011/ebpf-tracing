@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+<rect width="100%" height="100%" fill="white"/>
+<text x="450.0" y="28" text-anchor="middle" font-size="22" font-family="Arial">Average Replica Change vs Request Rate</text>
+<line x1="80" y1="480.00" x2="870" y2="480.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="484.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">-0.22</text>
+<line x1="80" y1="394.00" x2="870" y2="394.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="398.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.10</text>
+<line x1="80" y1="308.00" x2="870" y2="308.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="312.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.42</text>
+<line x1="80" y1="222.00" x2="870" y2="222.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="226.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">0.74</text>
+<line x1="80" y1="136.00" x2="870" y2="136.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="140.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">1.06</text>
+<line x1="80" y1="50.00" x2="870" y2="50.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="70" y="54.00" text-anchor="end" font-size="12" font-family="Arial" fill="#374151">1.38</text>
+<line x1="80.00" y1="50" x2="80.00" y2="480" stroke="#f3f4f6" stroke-width="1"/>
+<text x="80.00" y="502" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">100</text>
+<line x1="255.56" y1="50" x2="255.56" y2="480" stroke="#f3f4f6" stroke-width="1"/>
+<text x="255.56" y="502" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">150</text>
+<line x1="343.33" y1="50" x2="343.33" y2="480" stroke="#f3f4f6" stroke-width="1"/>
+<text x="343.33" y="502" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">175</text>
+<line x1="606.67" y1="50" x2="606.67" y2="480" stroke="#f3f4f6" stroke-width="1"/>
+<text x="606.67" y="502" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">250</text>
+<line x1="870.00" y1="50" x2="870.00" y2="480" stroke="#f3f4f6" stroke-width="1"/>
+<text x="870.00" y="502" text-anchor="middle" font-size="12" font-family="Arial" fill="#374151">325</text>
+<line x1="80" y1="50" x2="80" y2="480" stroke="#111827" stroke-width="1.5"/>
+<line x1="80" y1="480" x2="870" y2="480" stroke="#111827" stroke-width="1.5"/>
+<text x="450.0" y="540" text-anchor="middle" font-size="16" font-family="Arial">Request Rate (RPS)</text>
+<text x="24" y="280.0" text-anchor="middle" font-size="16" font-family="Arial" transform="rotate(-90 24 280.0)">Average Replica Delta per Window</text>
+<line x1="80" y1="528" x2="104" y2="528" stroke="#2563eb" stroke-width="3"/>
+<text x="112" y="532" font-size="13" font-family="Arial" fill="#111827">HPA-50</text>
+<polyline fill="none" stroke="#2563eb" stroke-width="3" points="80.00,285.57 255.56,255.65 343.33,420.17 606.67,308.00 870.00,480.00"/>
+<circle cx="80.00" cy="285.57" r="4" fill="#2563eb"/>
+<circle cx="255.56" cy="255.65" r="4" fill="#2563eb"/>
+<circle cx="343.33" cy="420.17" r="4" fill="#2563eb"/>
+<circle cx="606.67" cy="308.00" r="4" fill="#2563eb"/>
+<circle cx="870.00" cy="480.00" r="4" fill="#2563eb"/>
+<line x1="270" y1="528" x2="294" y2="528" stroke="#16a34a" stroke-width="3"/>
+<text x="302" y="532" font-size="13" font-family="Arial" fill="#111827">ThriveScale</text>
+<polyline fill="none" stroke="#16a34a" stroke-width="3" points="80.00,420.17 255.56,420.17 343.33,420.17 606.67,50.00 870.00,420.17"/>
+<circle cx="80.00" cy="420.17" r="4" fill="#16a34a"/>
+<circle cx="255.56" cy="420.17" r="4" fill="#16a34a"/>
+<circle cx="343.33" cy="420.17" r="4" fill="#16a34a"/>
+<circle cx="606.67" cy="50.00" r="4" fill="#16a34a"/>
+<circle cx="870.00" cy="420.17" r="4" fill="#16a34a"/>
+</svg>

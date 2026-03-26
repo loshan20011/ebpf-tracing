@@ -23,8 +23,8 @@ case "${selection}" in
   all)
     run_case "baseline_low_steady" "baseline_low_steady"
     run_case "catalogue_only_low" "F1_graph_catalogue"
-    run_case "cart_get_only_low" "F3_graph_cart"
-    run_case "customers_only_low" "F4_graph_customers"
+    run_case "cart_get_only_low" "F2_graph_cart"
+    run_case "customers_only_low" "F3_graph_customers"
     ;;
   baseline|baseline_low_steady)
     run_case "baseline_low_steady" "baseline_low_steady"
@@ -33,10 +33,10 @@ case "${selection}" in
     run_case "catalogue_only_low" "F1_graph_catalogue"
     ;;
   cart_get|cart_get_only_low)
-    run_case "cart_get_only_low" "F3_graph_cart"
+    run_case "cart_get_only_low" "F2_graph_cart"
     ;;
   customers|customers_only_low)
-    run_case "customers_only_low" "F4_graph_customers"
+    run_case "customers_only_low" "F3_graph_customers"
     ;;
   *)
     echo "Unknown metric check selection: ${selection}" >&2

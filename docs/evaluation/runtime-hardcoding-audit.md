@@ -16,17 +16,16 @@ The goal is to separate:
 | Area | File | Hardcoding | Why It Exists | Used For | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | Agent | `src/agent/agent.py` | `TARGET_NAMESPACE="default"` | Runtime namespace default for Kubernetes discovery | Metric attribution and service/IP mapping | Keep as intended |
-| Agent | `src/agent/agent.py` | Dynamic pod/service label mapping | Not app-specific hardcoding; learns services from Kubernetes metadata | Metric attribution, topology support | Keep as intended |
+| Agent | `src/agent/agent.py` | Dynamic pod/service label mapping via `SERVICE_LABEL_KEYS` | Generic workload discovery from Kubernetes metadata | Metric attribution, topology support | Keep as intended |
 | Aggregator | `src/aggregator/aggregator.py` | `TARGET_NAMESPACE="default"` | Runtime namespace default | Graph/state collection, control APIs | Keep as intended |
-| Aggregator | `src/aggregator/aggregator.py` | `TRAFFIC_TARGET_BASE_URL="http://gateway"` | Default traffic target for synthetic demo mode | Traffic-control API support | Make configurable |
+| Aggregator | `src/aggregator/aggregator.py` | `TRAFFIC_TARGET_BASE_URL` | Optional dashboard traffic target | Traffic-control API support | Configured via env |
+| Aggregator | `src/aggregator/aggregator.py` | Workload-name resolution via `SERVICE_LABEL_KEYS` | Generic pod/service to logical-service mapping | Graph/state collection | Keep as intended |
 | Aggregator | `src/aggregator/aggregator.py` | Support ticket Redis key names | UI/operator feature storage | Frontend support desk | Keep as intended |
 | Aggregator | `src/aggregator/aggregator_metrics.py` | Generic thresholds and window defaults | Runtime metric aggregation defaults, not service-name hardcoding | Metrics, evidence, topology support | Keep as intended |
-| Aggregator | `src/aggregator/aggregator_benchmark.py` | Sock Shop detection by namespace/name | Chooses benchmark profile for dashboard traffic controls | Frontend/benchmark support only | Configured via env |
-| Aggregator | `src/aggregator/aggregator_benchmark.py` | Hardcoded Sock Shop routes and target services | Provides friendly route list for dashboard traffic generation | Frontend/benchmark support only | Configured via env |
-| Aggregator | `src/aggregator/aggregator_benchmark.py` | Synthetic demo detection by `gateway`/`svc-*` | Chooses demo benchmark profile | Frontend/benchmark support only | Keep as intended |
+| Aggregator | `src/aggregator/aggregator_benchmark.py` | Sock Shop/synthetic route presets | Optional benchmark profile metadata for dashboard traffic helpers | Frontend/benchmark support only | Keep as benchmark-only helper |
 | Aggregator | `src/aggregator/app.py` | Alternate launcher wrapper | Duplicated startup path; Docker already runs `aggregator.py` directly | None in current runtime | Remove as unnecessary |
 | Controller | `src/controller/controller.py` | `TARGET_NAMESPACE="default"` | Runtime namespace default | Scale reads/patches, ServiceSLO reads | Keep as intended |
-| Controller | `src/controller/controller.py` | `ROOT_SERVICE="front-end"` | Default app entry/root for control ordering | Root-trigger traversal and root protection | Make configurable |
+| Controller | `src/controller/controller.py` | Root service selection | Control ordering and root protection | Root-trigger traversal and action ranking | Dynamic discovery first, explicit env override optional |
 | Controller | `src/controller/controller.py` | Root-service-first protection logic | Generic once `ROOT_SERVICE` is configurable; no longer hardcodes downstream services | Bottleneck targeting and action ranking | Keep as intended |
 | Frontend | `src/frontend/dashboard.html` | Fallback target text `"front-end"` | Display fallback when benchmark metadata is missing | UI only | Replaced with neutral fallback |
 | Frontend | `src/frontend/dashboard.html` | Placeholder route `/catalogue` | Demo/default traffic form value | UI only | Replaced with neutral placeholder |
@@ -43,9 +42,9 @@ The goal is to separate:
 
 ### Make configurable
 
-- Sock Shop route/profile mapping in `aggregator_benchmark.py`
-- `ROOT_SERVICE` default choice in `controller.py`
-- Synthetic/default traffic base URL in `aggregator.py`
+- Explicit benchmark profile selection in `aggregator_benchmark.py`
+- Optional traffic base URL in `aggregator.py`
+- Preferred service label keys in `agent.py` and `aggregator.py`
 
 ### Remove as unnecessary
 
@@ -60,8 +59,11 @@ The goal is to separate:
 ## Implemented Cleanup
 
 - removed `src/aggregator/app.py`
-- made `src/aggregator/aggregator_benchmark.py` configurable via environment:
-  - `SOCKSHOP_NAMESPACES`
+- removed benchmark defaults from the controller runtime root-service selection
+- made workload-name discovery configurable via:
+  - `SERVICE_LABEL_KEYS`
+- made `src/aggregator/aggregator_benchmark.py` explicit benchmark-only helper behavior via:
+  - `BENCHMARK_PROFILE`
   - `SOCKSHOP_ENTRY_SERVICE`
   - `SOCKSHOP_TRAFFIC_ROUTES_JSON`
   - `SYNTHETIC_ENTRY_SERVICE`
