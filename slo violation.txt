@@ -1,0 +1,18 @@
+6 windows total, each 10s
+window p90s = [90, 120, 180, 200, 140, 160]
+SLO = 150 ms
+
+How it works:
+
+The login probe groups requests into fixed windows, usually 10s.
+For each window, it computes window p90_latency_ms.
+A window is marked slo_violating = true only if:
+p90_latency_ms > slo_ms
+and there was at least one successful response in that window.
+Then:
+
+SLO violation time
+= sum of durations of all violating windows
+
+SLO violation rate
+= violation_time / total_benchmark_duration

@@ -889,6 +889,7 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
     p90_ms, _src, sufficient = preferred_truth_or_ebpf_p90(metrics, service)
     slo_ms = max(1.0, safe_float(cfg.get("slo", 0.0), 0.0))
     rps = preferred_rps(metrics, service)
+    rps_per_replica = rps / max(current_replicas, 1)
     runq_ms = runq_latency_ms(metrics, service)
     runq_threshold = runq_threshold_ms(metrics, service)
     err5xx = error_rate_5xx(metrics, service)
@@ -899,9 +900,25 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
     runq_breach = bool(runq_ms > runq_threshold)
     err_breach = bool(err5xx >= OVERLOAD_ERROR_RATE_THRESHOLD)
     timeout_breach = bool(timeout >= OVERLOAD_TIMEOUT_RATE_THRESHOLD)
-    raw_pressure = bool(active and (p90_breach or runq_breach or err_breach or timeout_breach))
+    runq_support_only_underloaded = bool(
+        active
+        and sufficient
+        and runq_breach
+        and not p90_breach
+        and not err_breach
+        and not timeout_breach
+        and p90_ms <= (slo_ms * DOWNSCALE_HEALTHY_RATIO_CAP)
+        and rps_per_replica <= (target_rps_per_replica(service) * DOWNSCALE_OVERPROVISION_RPS_FACTOR)
+    )
+    raw_pressure = bool(
+        active
+        and not runq_support_only_underloaded
+        and (p90_breach or runq_breach or err_breach or timeout_breach)
+    )
     scaleout_eligible_pressure = bool(
-        active and (p90_breach or err_breach or timeout_breach or (runq_breach and has_meaningful_demand))
+        active
+        and not runq_support_only_underloaded
+        and (p90_breach or err_breach or timeout_breach or (runq_breach and has_meaningful_demand))
     )
     pressure = bool(scaleout_eligible_pressure)
     reason_bits = []
@@ -917,7 +934,9 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
     if pressure:
         LAST_BREACH_AT[service] = time.time()
     scaleout_block_reason = ""
-    if raw_pressure and not scaleout_eligible_pressure:
+    if runq_support_only_underloaded:
+        scaleout_block_reason = "runq_support_only_underloaded"
+    elif raw_pressure and not scaleout_eligible_pressure:
         scaleout_block_reason = "runq_without_meaningful_demand"
     return {
         "service": service,
@@ -925,7 +944,7 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
         "p90_ms": p90_ms,
         "slo_ms": slo_ms,
         "rps": rps,
-        "rps_per_replica": (rps / max(current_replicas, 1)),
+        "rps_per_replica": rps_per_replica,
         "active": active,
         "raw_pressure": raw_pressure,
         "pressure": pressure,
@@ -948,6 +967,7 @@ def pressure_snapshot(service: str, cfg: dict, metrics: dict) -> dict:
         "timeout_breach": timeout_breach,
         "scaleout_eligible": scaleout_eligible_pressure,
         "scaleout_block_reason": scaleout_block_reason,
+        "runq_support_only_underloaded": runq_support_only_underloaded,
     }
 
 
